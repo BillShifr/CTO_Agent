@@ -1,0 +1,33 @@
+{
+  "name": "@avtopult/one-c-agent",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "license": "UNLICENSED",
+  "packageManager": "npm@11.6.1",
+  "engines": {
+    "node": ">=22.20.0 <23"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "bundle": "node scripts/build-release.mjs",
+    "start": "node dist/main.js",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "lint": "eslint src",
+    "format:check": "prettier --check .",
+    "check": "npm run typecheck && npm test && npm run lint && npm run format:check && npm run build && npm run bundle"
+  },
+  "dependencies": {
+    "zod": "4.5.4"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.1",
+    "eslint": "10.10.0",
+    "typescript-eslint": "8.70.0",
+    "typescript": "5.9.3",
+    "vitest": "5.0.0",
+    "prettier": "3.9.6",
+    "esbuild": "0.28.2"
+  }
+}

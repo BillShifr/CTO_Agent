@@ -1,0 +1,11 @@
+node_modules/
+dist/
+.artifacts/
+coverage/
+.env
+.env.*
+agent-config.json
+pending-results.json*
+*.log
+*.tsbuildinfo
+.DS_Store
