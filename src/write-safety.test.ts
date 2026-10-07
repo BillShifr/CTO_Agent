@@ -7,7 +7,7 @@ import { readConfig } from './config.js';
 
 afterEach(() => vi.unstubAllGlobals());
 
-it.each(['invoice.request', 'work-order.upsert'])(
+it.each(['invoice.request', 'work-order.upsert', 'payroll.export'])(
   'blocks %s before contacting 1C by default',
   async (kind) => {
     const directory = await mkdtemp(join(tmpdir(), 'agent-readonly-'));
@@ -16,6 +16,13 @@ it.each(['invoice.request', 'work-order.upsert'])(
       const url = new URL(
         typeof input === 'string' ? input : input instanceof URL ? input.href : input.url,
       );
+      if (url.pathname.endsWith('/events/claim'))
+        return Response.json({ events: [] }, { headers: { 'x-avtopult-contract-version': '1.0' } });
+      if (url.pathname.endsWith('/invoice-documents/claim'))
+        return Response.json(
+          { documents: [] },
+          { headers: { 'x-avtopult-contract-version': '1.0' } },
+        );
       expect(url.hostname).toBe('cloud.example');
       if (url.pathname.endsWith('/heartbeat')) return new Response(null, { status: 204 });
       if (url.pathname.endsWith('/result')) {
@@ -27,7 +34,10 @@ it.each(['invoice.request', 'work-order.upsert'])(
         command: {
           id: '11111111-1111-4111-8111-111111111111',
           kind,
-          idempotencyKey: 'outbox:test-1',
+          idempotencyKey:
+            kind === 'payroll.export'
+              ? 'payroll:aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+              : 'outbox:test-1',
           leaseToken: 'x'.repeat(32),
           leaseUntil: '2026-10-04T12:00:00.000Z',
           request:
@@ -38,20 +48,28 @@ it.each(['invoice.request', 'work-order.upsert'])(
                   amountTiyn: '100',
                   requestAttempt: 1,
                 }
-              : {
-                  contractVersion: '1.0',
-                  workOrder: {
-                    workOrderId: 'test-order',
-                    number: 'TEST',
-                    version: 1,
-                    stationExternalId: 'test-station',
-                    client: { type: 'person', name: 'Test', phone: 'test' },
-                    vehicle: { registrationNumber: 'TEST', brand: 'Test', model: 'Test' },
-                    items: [],
-                    totalTiyn: '0',
-                    status: 'created',
+              : kind === 'work-order.upsert'
+                ? {
+                    contractVersion: '1.0',
+                    workOrder: {
+                      workOrderId: 'test-order',
+                      number: 'TEST',
+                      version: 1,
+                      stationExternalId: 'test-station',
+                      client: { type: 'person', name: 'Test', phone: 'test' },
+                      vehicle: { registrationNumber: 'TEST', brand: 'Test', model: 'Test' },
+                      items: [],
+                      totalTiyn: '0',
+                      status: 'created',
+                    },
+                  }
+                : {
+                    periodId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+                    dateFrom: '2026-09-01T00:00:00.000Z',
+                    dateTo: '2026-10-01T00:00:00.000Z',
+                    stationId: null,
+                    lines: [],
                   },
-                },
         },
       });
     });
@@ -72,7 +90,17 @@ it.each(['invoice.request', 'work-order.upsert'])(
         }),
       );
       await agent.runOnce();
-      expect(transport).toHaveBeenCalledTimes(3);
+      expect(transport).toHaveBeenCalledTimes(5);
+      expect(
+        transport.mock.calls.some(([input]) => {
+          const url = new URL(
+            typeof input === 'string' ? input : input instanceof URL ? input.href : input.url,
+          );
+          return ['/invoices', '/work-orders', '/payroll-periods'].some((path) =>
+            url.pathname.endsWith(path),
+          );
+        }),
+      ).toBe(false);
       expect(results).toEqual([
         expect.objectContaining({
           kind,

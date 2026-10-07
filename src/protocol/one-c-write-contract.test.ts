@@ -41,7 +41,7 @@ describe('1C write contract', () => {
     expect(
       oneCWorkOrderUpsertResponseSchema.parse({
         contractVersion: ONE_C_WRITE_CONTRACT_VERSION,
-        externalId: '11111111-1111-4111-8111-111111111111',
+        externalId: '9b903d88-bbd2-11f1-8705-9c6b00dcef78',
         version: 3,
         result: 'created',
       }),

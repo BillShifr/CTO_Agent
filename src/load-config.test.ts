@@ -5,11 +5,6 @@ import { describe, expect, it } from 'vitest';
 import { loadConfig } from './load-config.js';
 
 describe('service configuration', () => {
-  it('redacts invalid environment values too', async () => {
-    await expect(loadConfig({ AVTOPULT_API_URL: 'private-invalid-secret' })).rejects.toThrow(
-      'Cannot load agent configuration; check file access and required settings',
-    );
-  });
   it('redacts invalid secret-bearing configuration rather than logging parser input', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'avtopult-config-'));
     try {

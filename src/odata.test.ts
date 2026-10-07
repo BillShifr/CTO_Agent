@@ -20,24 +20,29 @@ describe('OData collection boundaries', () => {
       .mockResolvedValueOnce(Response.json({ value: [{ id: 2 }] }));
     vi.stubGlobal('fetch', fetch);
     expect(await readODataOutcome(config, { relativePath: 'Catalog_Items' })).toEqual({
-      status: 'succeeded',
-      response: [{ id: 1 }, { id: 2 }],
+      chunks: [],
+      outcome: { status: 'succeeded', response: [{ id: 1 }, { id: 2 }] },
     });
     expect(fetch).toHaveBeenCalledTimes(2);
   });
 
-  it('stops an oversized collection before fetching its next page', async () => {
-    const fetch = vi.fn().mockImplementation(() =>
-      Response.json({
-        value: ['x'.repeat(5_000_000)],
-        'odata.nextLink': 'Catalog_Items?$skip=1',
-      }),
-    );
+  it('splits a collection larger than the cloud body limit into verified chunks', async () => {
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(
+        Response.json({
+          value: ['x'.repeat(5_000_000)],
+          'odata.nextLink': 'Catalog_Items?$skip=1',
+        }),
+      )
+      .mockResolvedValueOnce(Response.json({ value: ['y'.repeat(5_000_000)] }));
     vi.stubGlobal('fetch', fetch);
-    expect(await readODataOutcome(config, { relativePath: 'Catalog_Items' })).toMatchObject({
-      status: 'failed',
-      problem: { code: 'ODATA_COLLECTION_TOO_LARGE', retryable: false },
+    const result = await readODataOutcome(config, { relativePath: 'Catalog_Items' });
+    expect(result.outcome).toMatchObject({
+      status: 'succeeded',
+      response: { transfer: 'chunks', chunkCount: 2, itemCount: 2 },
     });
+    expect(result.chunks).toHaveLength(2);
     expect(fetch).toHaveBeenCalledTimes(2);
   });
 });
@@ -60,7 +65,7 @@ describe('OData command outcomes', () => {
           .mockResolvedValue(new Response('private customer data', { status: Number(status) })),
       );
       const outcome = await readODataOutcome(config, { relativePath: 'Catalog_Items' });
-      expect(outcome).toMatchObject({
+      expect(outcome.outcome).toMatchObject({
         status: 'failed',
         problem: { code: `ODATA_HTTP_${status}`, retryable },
       });
@@ -70,7 +75,9 @@ describe('OData command outcomes', () => {
 
   it('reports transient connection failures as retryable', async () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('private connection detail')));
-    expect(await readODataOutcome(config, { relativePath: 'Catalog_Items' })).toMatchObject({
+    expect(
+      (await readODataOutcome(config, { relativePath: 'Catalog_Items' })).outcome,
+    ).toMatchObject({
       status: 'failed',
       problem: { retryable: true, code: 'ODATA_TRANSPORT_ERROR' },
     });
@@ -78,7 +85,9 @@ describe('OData command outcomes', () => {
 
   it('does not retry malformed collections forever', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json({ unexpected: 'secret' })));
-    expect(await readODataOutcome(config, { relativePath: 'Catalog_Items' })).toMatchObject({
+    expect(
+      (await readODataOutcome(config, { relativePath: 'Catalog_Items' })).outcome,
+    ).toMatchObject({
       status: 'failed',
       problem: { retryable: false },
     });
@@ -89,7 +98,9 @@ describe('OData command outcomes', () => {
       .fn()
       .mockResolvedValue(Response.json({ value: [], 'odata.nextLink': 'https://outside.example' }));
     vi.stubGlobal('fetch', fetch);
-    expect(await readODataOutcome(config, { relativePath: 'Catalog_Items' })).toMatchObject({
+    expect(
+      (await readODataOutcome(config, { relativePath: 'Catalog_Items' })).outcome,
+    ).toMatchObject({
       status: 'failed',
       problem: { retryable: false },
     });

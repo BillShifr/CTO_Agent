@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { cp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
@@ -30,16 +30,17 @@ for (const name of [
 ]) {
   await cp(resolve(agentDirectory, name), resolve(releaseDirectory, name));
 }
+await cp(
+  resolve(repositoryDirectory, 'one-c-extension-source'),
+  resolve(releaseDirectory, 'one-c-extension-source'),
+  { recursive: true },
+);
+await cp(
+  resolve(repositoryDirectory, 'one-c-write-api.md'),
+  resolve(releaseDirectory, 'one-c-write-api.md'),
+);
 
-const releaseFiles = [
-  'agent.mjs',
-  'agent.mjs.map',
-  'README.md',
-  'INSTALL.md',
-  'configure-environment.ps1',
-  'install-service.ps1',
-  'uninstall-service.ps1',
-];
+const releaseFiles = await filesWithin(releaseDirectory);
 const checksums = [];
 for (const name of releaseFiles) {
   const bytes = await readFile(resolve(releaseDirectory, name));
@@ -48,3 +49,13 @@ for (const name of releaseFiles) {
 await writeFile(resolve(releaseDirectory, 'SHA256SUMS'), `${checksums.join('\n')}\n`, 'utf8');
 
 console.log(`1C agent release created at ${releaseDirectory}`);
+
+async function filesWithin(directory, prefix = '') {
+  const names = [];
+  for (const entry of await readdir(resolve(directory, prefix), { withFileTypes: true })) {
+    const relative = prefix === '' ? entry.name : `${prefix}/${entry.name}`;
+    if (entry.isDirectory()) names.push(...(await filesWithin(directory, relative)));
+    else if (entry.isFile() && relative !== 'SHA256SUMS') names.push(relative);
+  }
+  return names.sort();
+}

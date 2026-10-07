@@ -22,7 +22,9 @@ export async function boundedFetch(
           signal: controller.signal,
         });
         const body =
-          response.body === null ? null : await bytes(response, 10_000_000, controller.signal);
+          response.body === null
+            ? null
+            : await bytes(response, 10 * 1024 * 1024, controller.signal);
         return new Response(body, {
           status: response.status,
           statusText: response.statusText,

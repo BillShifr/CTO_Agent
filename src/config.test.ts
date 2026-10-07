@@ -1,27 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { readConfig } from './config.js';
+import { validAgentEnvironment } from './test-environment.js';
 
-const valid = {
-  AVTOPULT_AGENT_ID: 'station-agent',
-  AVTOPULT_API_URL: 'https://cloud.example/api/v1/',
-  AVTOPULT_AGENT_SECRET: 's'.repeat(32),
-  ONE_C_WRITE_URL: 'http://127.0.0.1/base/hs/avtopult/v1/',
-  ONE_C_USERNAME: 'agent',
-  ONE_C_PASSWORD: 'secret',
-  ONE_C_ODATA_URL: 'http://127.0.0.1/base/odata/standard.odata/',
-  ONE_C_ODATA_USERNAME: 'reader',
-  ONE_C_ODATA_PASSWORD: 'reader-secret',
-  ONE_C_ALLOW_HTTP: '1',
-  AVTOPULT_AGENT_STATE_DIR: 'C:\\ProgramData\\AvtoPult',
-};
+const valid = validAgentEnvironment();
 
 describe('agent configuration', () => {
-  it('requires explicit local opt-in for writes', () => {
-    expect(readConfig(valid).allowWrites).toBe(false);
-    expect(readConfig({ ...valid, ONE_C_ALLOW_WRITES: '0' }).allowWrites).toBe(false);
-    expect(readConfig({ ...valid, ONE_C_ALLOW_WRITES: '1' }).allowWrites).toBe(true);
-    expect(() => readConfig({ ...valid, ONE_C_ALLOW_WRITES: 'true' })).toThrow();
-  });
   it.each([
     'ftp://127.0.0.1/base/hs/avtopult/v1/',
     'http://user:password@127.0.0.1/base/hs/avtopult/v1/',
@@ -30,6 +13,7 @@ describe('agent configuration', () => {
   ])('rejects ambiguous or unsupported endpoints: %s', (url) => {
     expect(() => readConfig({ ...valid, ONE_C_WRITE_URL: url })).toThrow();
   });
+
   it('allows HTTP only for the explicitly local 1C hop', () => {
     expect(readConfig(valid).oneCUrl.origin).toBe('http://127.0.0.1');
     expect(() => readConfig({ ...valid, ONE_C_ALLOW_HTTP: '0' })).toThrow('explicit');
@@ -39,5 +23,52 @@ describe('agent configuration', () => {
     expect(() =>
       readConfig({ ...valid, AVTOPULT_API_URL: 'http://cloud.example/api/v1/' }),
     ).toThrow();
+  });
+
+  it('keeps 1C writes disabled until the local administrator explicitly enables them', () => {
+    const { ONE_C_ALLOW_WRITES: _allowWrites, ...withoutWriteFlag } = valid;
+    expect(readConfig(withoutWriteFlag).allowWrites).toBe(false);
+    expect(readConfig({ ...valid, ONE_C_ALLOW_WRITES: '1' }).allowWrites).toBe(true);
+  });
+
+  it('builds the inbound 1C callback route from the Cloud API base', () => {
+    expect(readConfig(valid).callbackUrl.href).toBe(
+      'https://cloud.example/api/v1/integrations/one-c/callback',
+    );
+  });
+
+  it('accepts Smart POS only as a complete local HTTPS configuration', () => {
+    const config = readConfig({
+      ...valid,
+      KASPI_SMART_POS_URL: 'https://terminal-01.kaspipos.kz:8080/',
+      KASPI_SMART_POS_NAME: 'AvtoPult-station-1',
+      KASPI_SMART_POS_TOKEN: 'k'.repeat(16),
+      KASPI_SMART_POS_REFRESH_TOKEN: 'r'.repeat(16),
+      KASPI_CALLBACK_SECRET: 'c'.repeat(16),
+    });
+    expect(config.smartPos?.url.origin).toBe('https://terminal-01.kaspipos.kz:8080');
+    expect(() =>
+      readConfig({ ...valid, KASPI_SMART_POS_URL: 'https://192.168.1.50:8080/' }),
+    ).toThrow('together');
+    expect(() =>
+      readConfig({
+        ...valid,
+        KASPI_SMART_POS_URL: 'http://terminal-01.kaspipos.kz:8080/',
+        KASPI_SMART_POS_NAME: 'AvtoPult-station-1',
+        KASPI_SMART_POS_TOKEN: 'k'.repeat(16),
+        KASPI_SMART_POS_REFRESH_TOKEN: 'r'.repeat(16),
+        KASPI_CALLBACK_SECRET: 'c'.repeat(16),
+      }),
+    ).toThrow('HTTPS');
+    expect(() =>
+      readConfig({
+        ...valid,
+        KASPI_SMART_POS_URL: 'https://192.168.1.50:8080/',
+        KASPI_SMART_POS_NAME: 'AvtoPult-station-1',
+        KASPI_SMART_POS_TOKEN: 'k'.repeat(16),
+        KASPI_SMART_POS_REFRESH_TOKEN: 'r'.repeat(16),
+        KASPI_CALLBACK_SECRET: 'c'.repeat(16),
+      }),
+    ).toThrow('certificate');
   });
 });
