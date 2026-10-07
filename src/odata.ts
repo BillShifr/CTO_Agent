@@ -1,9 +1,23 @@
-import type { OneCAgentCommand, OneCAgentResult } from './protocol/index.js';
+import { createHash } from 'node:crypto';
+import {
+  canonicalAgentJson,
+  type OneCAgentCommand,
+  type OneCAgentResult,
+} from './protocol/index.js';
 import type { AgentConfig } from './config.js';
 import { boundedFetch, json } from './http.js';
 
 type Request = Extract<OneCAgentCommand, { kind: 'odata.collection' }>['request'];
 type Outcome = Extract<OneCAgentResult, { kind: 'odata.collection' }>['outcome'];
+export interface ODataReadResult {
+  readonly outcome: Outcome;
+  readonly chunks: readonly (readonly unknown[])[];
+}
+
+const INLINE_COLLECTION_BYTES = 8_000_000;
+const CHUNK_BYTES = 1_000_000;
+const MAX_COLLECTION_BYTES = 100_000_000;
+const MAX_CHUNKS = 128;
 
 class ODataFailure extends Error {
   constructor(
@@ -14,41 +28,94 @@ class ODataFailure extends Error {
   }
 }
 
-export async function readODataOutcome(config: AgentConfig, request: Request): Promise<Outcome> {
+export async function readODataOutcome(
+  config: AgentConfig,
+  request: Request,
+): Promise<ODataReadResult> {
   try {
-    return { status: 'succeeded', response: await collect(config, request) };
+    return await collect(config, request);
   } catch (error) {
     return {
-      status: 'failed',
-      problem: {
-        contractVersion: '1.0',
-        code: error instanceof ODataFailure ? error.code : 'ODATA_INVALID_RESPONSE',
-        retryable: error instanceof ODataFailure && error.retryable,
-        message: 'OData collection could not be read; check connection and publication settings',
+      chunks: [],
+      outcome: {
+        status: 'failed',
+        problem: {
+          contractVersion: '1.0',
+          code: error instanceof ODataFailure ? error.code : 'ODATA_INVALID_RESPONSE',
+          retryable: error instanceof ODataFailure && error.retryable,
+          message: 'OData collection could not be read; check connection and publication settings',
+        },
       },
     };
   }
 }
 
-async function collect(config: AgentConfig, request: Request): Promise<unknown[]> {
+async function collect(config: AgentConfig, request: Request): Promise<ODataReadResult> {
   const url = initialUrl(request.relativePath, config.oneCODataUrl);
   for (const [key, value] of Object.entries(request.query ?? {})) url.searchParams.set(key, value);
-  const values: unknown[] = [];
+  const builder = new ODataCollectionBuilder();
   let next: URL | undefined = url;
-  // Leave room for the enclosing result envelope within the cloud's 10 MB body limit.
-  let size = 2;
   for (let page = 0; page < 500 && next !== undefined; page++) {
     const payload = await readPage(config, next);
-    for (const value of payload.value) {
-      size += Buffer.byteLength(JSON.stringify(value)) + 1;
-      if (size > 9_900_000) throw new ODataFailure('ODATA_COLLECTION_TOO_LARGE', false);
-      values.push(value);
-    }
+    for (const value of payload.value) builder.add(value);
     const link = payload['odata.nextLink'];
     next = link === undefined ? undefined : checkedUrl(link, config.oneCODataUrl);
   }
   if (next !== undefined) throw new ODataFailure('ODATA_PAGE_LIMIT', false);
-  return values;
+  return builder.finish();
+}
+
+class ODataCollectionBuilder {
+  private readonly values: unknown[] = [];
+  private readonly chunks: unknown[][] = [];
+  private chunk: unknown[] = [];
+  private chunkBytes = 2;
+  private size = 2;
+  private readonly hash = createHash('sha256').update('[');
+
+  add(value: unknown): void {
+    const encoded = canonicalAgentJson(value);
+    const valueBytes = Buffer.byteLength(encoded);
+    if (valueBytes > 8_000_000) throw new ODataFailure('ODATA_ITEM_TOO_LARGE', false);
+    const separator = this.values.length === 0 ? 0 : 1;
+    this.size += valueBytes + separator;
+    if (this.size > MAX_COLLECTION_BYTES)
+      throw new ODataFailure('ODATA_COLLECTION_TOO_LARGE', false);
+    if (this.chunk.length > 0 && this.chunkBytes + valueBytes + 1 > CHUNK_BYTES) this.closeChunk();
+    if (this.chunks.length >= MAX_CHUNKS)
+      throw new ODataFailure('ODATA_COLLECTION_TOO_LARGE', false);
+    this.chunk.push(value);
+    this.chunkBytes += valueBytes + (this.chunk.length === 1 ? 0 : 1);
+    this.values.push(value);
+    if (separator > 0) this.hash.update(',');
+    this.hash.update(encoded);
+  }
+
+  finish(): ODataReadResult {
+    this.hash.update(']');
+    if (this.size <= INLINE_COLLECTION_BYTES)
+      return { chunks: [], outcome: { status: 'succeeded', response: this.values } };
+    this.closeChunk();
+    return {
+      chunks: this.chunks,
+      outcome: {
+        status: 'succeeded',
+        response: {
+          transfer: 'chunks',
+          chunkCount: this.chunks.length,
+          itemCount: this.values.length,
+          sha256: this.hash.digest('hex'),
+        },
+      },
+    };
+  }
+
+  private closeChunk(): void {
+    if (this.chunk.length === 0) return;
+    this.chunks.push(this.chunk);
+    this.chunk = [];
+    this.chunkBytes = 2;
+  }
 }
 
 function initialUrl(path: string, base: URL): URL {

@@ -15,13 +15,18 @@ describe('Windows release artifact', () => {
     const checksumFile = await readFile(resolve(release, 'SHA256SUMS'), 'utf8');
     const entries = checksumFile.trim().split('\n');
 
-    expect(entries).toHaveLength(7);
+    expect(entries.length).toBeGreaterThan(10);
     for (const entry of entries) {
-      const match = /^(?<hash>[a-f\d]{64})[ ]{2}(?<name>[^/\\]+)$/.exec(entry);
+      const match = /^(?<hash>[a-f\d]{64})[ ]{2}(?<name>[^\\]+)$/.exec(entry);
       expect(match?.groups).toBeDefined();
+      expect(match!.groups!.name!.split('/')).not.toContain('..');
       const bytes = await readFile(resolve(release, match!.groups!.name!));
       expect(createHash('sha256').update(bytes).digest('hex')).toBe(match!.groups!.hash);
     }
+    expect(entries.some((entry) => entry.endsWith('one-c-extension-source/MAXIM-HANDOFF.md'))).toBe(
+      true,
+    );
+    expect(entries.some((entry) => entry.endsWith('one-c-write-api.md'))).toBe(true);
     await expect(
       execute(process.execPath, [resolve(release, 'agent.mjs')], {
         cwd: release,

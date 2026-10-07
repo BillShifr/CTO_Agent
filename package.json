@@ -13,10 +13,11 @@
     "bundle": "node scripts/build-release.mjs",
     "start": "node dist/main.js",
     "typecheck": "tsc -p tsconfig.json",
-    "test": "vitest run",
+    "test": "vitest run src",
+    "test:extension": "node --test one-c-extension-source/source-contract.test.mjs",
     "lint": "eslint src",
     "format:check": "prettier --check .",
-    "check": "npm run typecheck && npm test && npm run lint && npm run format:check && npm run build && npm run bundle"
+    "check": "npm run typecheck && npm test && npm run test:extension && npm run lint && npm run format:check && npm run build && npm run bundle"
   },
   "dependencies": {
     "zod": "4.5.4"
