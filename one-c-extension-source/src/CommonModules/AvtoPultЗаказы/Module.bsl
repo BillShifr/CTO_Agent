@@ -99,7 +99,7 @@
 	Если Ошибка <> Неопределено Тогда Возврат Ошибка; КонецЕсли;
 	Документ.СуммаДокумента = AvtoPultКонтракт.Тиыны(Заказ.totalTiyn) / 100;
 	// Never post or enable data-exchange bypass: native validation remains active.
-	AvtoPultИзмененияЗаказов.ЗаписатьИзОблака(Документ, Заказ.version);
+	AvtoPultИзмененияЗаказов.ЗаписатьИзОблака(Документ, Заказ.version, Payload);
 	// Read stored values: native handlers and numeric qualifiers must not silently alter money.
 	Документ = Документ.Ссылка.ПолучитьОбъект();
 	Если Не СохраненныйСоставСовпадает(Документ, Заказ)

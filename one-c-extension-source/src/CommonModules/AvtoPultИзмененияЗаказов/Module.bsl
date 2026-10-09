@@ -31,8 +31,13 @@
 	Запись.ЗаказКлиента = Источник.Ссылка;
 	Запись.BaseVersion = Связь.Версия;
 	ИсточникЗаписи = ОпределитьИсточник(Источник.ДополнительныеСвойства);
+	Если ИсточникЗаписи.origin = "cloud" И ИсточникЗаписи.workOrderId <> Связь.WorkOrderId Тогда
+		ВызватьИсключение "COMMAND_ORDER_MISMATCH";
+	КонецЕсли;
 	Запись.Origin = ИсточникЗаписи.origin;
 	Запись.CommandVersion = ИсточникЗаписи.commandVersion;
+	Запись.AcceptedCloudPayloadJSON = ИсточникЗаписи.payloadJSON;
+	Запись.AcceptedCloudPayloadSHA256 = ИсточникЗаписи.payloadSHA256;
 	Запись.BasePayloadJSON = Связь.PayloadJSON;
 	Запись.PayloadJSON = СнимокJSON;
 	Запись.SHA256 = AvtoPultИнтеграция.SHA256(СнимокJSON);
@@ -51,38 +56,69 @@
 КонецПроцедуры
 
 // Scope the marker to this object/write; native validation and posting policy stay unchanged.
-Процедура ЗаписатьИзОблака(Документ, ВерсияКоманды) Экспорт
+Процедура ЗаписатьИзОблака(Документ, ВерсияКоманды, Payload) Экспорт
 	Если Не ТранзакцияАктивна() Тогда ВызватьИсключение "TRANSACTION_REQUIRED"; КонецЕсли;
-	Если Не AvtoPultКонтракт.ЦелоеВДиапазоне(ВерсияКоманды, 1, 2147483647) Тогда
-		ВызватьИсключение "INVALID_COMMAND_VERSION";
+	ПроверитьКоманду(Payload, ВерсияКоманды);
+	ExternalId = AvtoPultКонтракт.Свойство(Payload.workOrder, "externalId", "");
+	Если ExternalId <> "" И ExternalId <> GUIDСсылки(Документ.Ссылка) Тогда
+		ВызватьИсключение "COMMAND_DOCUMENT_MISMATCH";
 	КонецЕсли;
+	// Freeze before native handlers run; never recover provenance from the mutable binding.
+	PayloadJSON = AvtoPultКонтракт.JSON(Payload);
 	Свойства = Документ.ДополнительныеСвойства;
 	БылМаркер = Свойства.Свойство("AvtoPultВерсияКоманды", ПрежнийМаркер);
+	БылPayload = Свойства.Свойство("AvtoPultPayloadКоманды", ПрежнийPayload);
 	Свойства.Вставить("AvtoPultВерсияКоманды", ВерсияКоманды);
+	Свойства.Вставить("AvtoPultPayloadКоманды", PayloadJSON);
 	Попытка
 		Документ.Записать(РежимЗаписиДокумента.Запись);
 	Исключение
-		ВосстановитьМаркер(Свойства, БылМаркер, ПрежнийМаркер);
+		ВосстановитьМаркер(Свойства, "AvtoPultВерсияКоманды", БылМаркер, ПрежнийМаркер);
+		ВосстановитьМаркер(Свойства, "AvtoPultPayloadКоманды", БылPayload, ПрежнийPayload);
 		ВызватьИсключение;
 	КонецПопытки;
-	ВосстановитьМаркер(Свойства, БылМаркер, ПрежнийМаркер);
+	ВосстановитьМаркер(Свойства, "AvtoPultВерсияКоманды", БылМаркер, ПрежнийМаркер);
+	ВосстановитьМаркер(Свойства, "AvtoPultPayloadКоманды", БылPayload, ПрежнийPayload);
 КонецПроцедуры
 
 Функция ОпределитьИсточник(Свойства) Экспорт
 	Если Не Свойства.Свойство("AvtoPultВерсияКоманды", ВерсияКоманды) Тогда
-		Возврат Новый Структура("origin,commandVersion", "native", 0);
+		Если Свойства.Свойство("AvtoPultPayloadКоманды") Тогда ВызватьИсключение "ORPHAN_COMMAND_PAYLOAD"; КонецЕсли;
+		Возврат Новый Структура("origin,commandVersion,workOrderId,payloadJSON,payloadSHA256", "native", 0, "", "", "");
 	КонецЕсли;
+	Если Не Свойства.Свойство("AvtoPultPayloadКоманды", PayloadJSON) Тогда
+		ВызватьИсключение "COMMAND_PAYLOAD_REQUIRED";
+	КонецЕсли;
+	Если ТипЗнч(PayloadJSON) <> Тип("Строка") Или ПустаяСтрока(PayloadJSON) Тогда
+		ВызватьИсключение "COMMAND_PAYLOAD_REQUIRED";
+	КонецЕсли;
+	Чтение = Новый ЧтениеJSON;
+	Чтение.УстановитьСтроку(PayloadJSON);
+	Payload = ПрочитатьJSON(Чтение, Ложь);
+	Чтение.Закрыть();
+	ПроверитьКоманду(Payload, ВерсияКоманды);
+	Возврат Новый Структура("origin,commandVersion,workOrderId,payloadJSON,payloadSHA256",
+		"cloud", ВерсияКоманды, Payload.workOrder.workOrderId, PayloadJSON, AvtoPultИнтеграция.SHA256(PayloadJSON));
+КонецФункции
+
+Процедура ПроверитьКоманду(Payload, ВерсияКоманды)
 	Если Не AvtoPultКонтракт.ЦелоеВДиапазоне(ВерсияКоманды, 1, 2147483647) Тогда
 		ВызватьИсключение "INVALID_COMMAND_VERSION";
 	КонецЕсли;
-	Возврат Новый Структура("origin,commandVersion", "cloud", ВерсияКоманды);
-КонецФункции
+	Заказ = AvtoPultКонтракт.Свойство(Payload, "workOrder");
+	Если AvtoPultКонтракт.Свойство(Заказ, "version") <> ВерсияКоманды Тогда
+		ВызватьИсключение "COMMAND_VERSION_MISMATCH";
+	КонецЕсли;
+	Если AvtoPultКонтракт.ПроверитьЗаказ(Payload) <> Неопределено Тогда
+		ВызватьИсключение "COMMAND_PAYLOAD_INVALID";
+	КонецЕсли;
+КонецПроцедуры
 
-Процедура ВосстановитьМаркер(Свойства, БылМаркер, ПрежнийМаркер)
+Процедура ВосстановитьМаркер(Свойства, Имя, БылМаркер, ПрежнийМаркер)
 	Если БылМаркер Тогда
-		Свойства.Вставить("AvtoPultВерсияКоманды", ПрежнийМаркер);
+		Свойства.Вставить(Имя, ПрежнийМаркер);
 	Иначе
-		Свойства.Удалить("AvtoPultВерсияКоманды");
+		Свойства.Удалить(Имя);
 	КонецЕсли;
 КонецПроцедуры
 

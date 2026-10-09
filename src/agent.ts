@@ -11,6 +11,7 @@ import {
   oneCWorkOrderUpsertResponseSchema,
   oneCWriteProblemSchema,
   type OneCAgentCommand,
+  type OneCAgentInboundClaimResponse,
   type OneCAgentInvoiceDocumentClaimResponse,
   type OneCAgentODataManifest,
   type OneCAgentResult,
@@ -25,6 +26,7 @@ import { SmartPosSpool, type SmartPosPending } from './smart-pos-spool.js';
 import { ODataChunkSpool } from './odata-chunk-spool.js';
 
 type ClaimedInvoiceDocument = OneCAgentInvoiceDocumentClaimResponse['documents'][number];
+type ClaimedInboundEvent = OneCAgentInboundClaimResponse['events'][number];
 type OneCWriteCommand = Exclude<
   OneCAgentCommand,
   { kind: 'odata.collection' | 'kaspi.smart-pos.start' }
@@ -312,40 +314,57 @@ export class OneCAgent {
     const response = await this.local('events/claim', { method: 'POST' });
     if (response.status !== 200) throw new Error(`1C event claim HTTP ${response.status}`);
     const claimed = oneCAgentInboundClaimResponseSchema.parse(await json(response));
+    const blockedOrders = new Set<string>();
     for (const claimedEvent of claimed.events) {
-      const receipt = await this.cloud(this.config.callbackUrl, {
+      const event = claimedEvent.event;
+      const orderId =
+        event.event === 'invoice.issued'
+          ? event.payload.workOrderExternalId
+          : event.workOrderExternalId;
+      if (blockedOrders.has(orderId)) continue;
+      try {
+        await this.relayInboundEvent(claimedEvent);
+      } catch {
+        // Keep this order unacknowledged; independent orders may still make progress.
+        blockedOrders.add(orderId);
+      }
+    }
+    if (blockedOrders.size > 0) throw new Error('1C event batch incomplete');
+  }
+
+  private async relayInboundEvent(claimedEvent: ClaimedInboundEvent): Promise<void> {
+    const receipt = await this.cloud(this.config.callbackUrl, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json; charset=utf-8' },
+      body: jsonBody(claimedEvent.event),
+    });
+    if (!receipt.ok) throw new Error(`1C callback HTTP ${receipt.status}`);
+    const accepted = oneCAgentInboundReceiptSchema.parse(await json(receipt));
+    if (accepted.eventId !== claimedEvent.event.eventId)
+      throw new Error('1C callback receipt event id mismatch');
+    if (
+      claimedEvent.event.event === 'workorder.changed' &&
+      (accepted.workOrderVersion === undefined ||
+        accepted.workOrderVersion <= claimedEvent.event.baseVersion)
+    )
+      throw new Error('1C callback resulting version unavailable');
+    const acknowledgement = await this.local(
+      `events/${encodeURIComponent(claimedEvent.event.eventId)}/ack`,
+      {
         method: 'POST',
         headers: { 'content-type': 'application/json; charset=utf-8' },
-        body: jsonBody(claimedEvent.event),
-      });
-      if (!receipt.ok) throw new Error(`1C callback HTTP ${receipt.status}`);
-      const accepted = oneCAgentInboundReceiptSchema.parse(await json(receipt));
-      if (accepted.eventId !== claimedEvent.event.eventId)
-        throw new Error('1C callback receipt event id mismatch');
-      if (
-        claimedEvent.event.event === 'workorder.changed' &&
-        (accepted.workOrderVersion === undefined ||
-          accepted.workOrderVersion <= claimedEvent.event.baseVersion)
-      )
-        throw new Error('1C callback resulting version unavailable');
-      const acknowledgement = await this.local(
-        `events/${encodeURIComponent(claimedEvent.event.eventId)}/ack`,
-        {
-          method: 'POST',
-          headers: { 'content-type': 'application/json; charset=utf-8' },
-          body: JSON.stringify(
-            oneCAgentInboundAckSchema.parse({
-              leaseToken: claimedEvent.leaseToken,
-              ...(claimedEvent.event.event === 'workorder.changed'
-                ? { workOrderVersion: accepted.workOrderVersion }
-                : {}),
-            }),
-          ),
-        },
-      );
-      if (acknowledgement.status !== 204)
-        throw new Error(`1C event acknowledgement HTTP ${acknowledgement.status}`);
-    }
+        body: JSON.stringify(
+          oneCAgentInboundAckSchema.parse({
+            leaseToken: claimedEvent.leaseToken,
+            ...(claimedEvent.event.event === 'workorder.changed'
+              ? { workOrderVersion: accepted.workOrderVersion }
+              : {}),
+          }),
+        ),
+      },
+    );
+    if (acknowledgement.status !== 204)
+      throw new Error(`1C event acknowledgement HTTP ${acknowledgement.status}`);
   }
 
   private async relayInvoiceDocuments(): Promise<void> {

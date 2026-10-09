@@ -41,10 +41,16 @@
 	Проверок = Проверок + 5;
 	РучнаяЗапись = AvtoPultИзмененияЗаказов.ОпределитьИсточник(Новый Структура);
 	Проверить(РучнаяЗапись.origin = "native" И РучнаяЗапись.commandVersion = 0, "native origin");
+	Payload = ОбразецЗаказа();
+	Payload.workOrder.version = 7;
+	ПринятыйJSON = AvtoPultКонтракт.JSON(Payload);
 	ОблачнаяЗапись = AvtoPultИзмененияЗаказов.ОпределитьИсточник(
-		Новый Структура("AvtoPultВерсияКоманды", 7));
+		Новый Структура("AvtoPultВерсияКоманды,AvtoPultPayloadКоманды", 7, ПринятыйJSON));
 	Проверить(ОблачнаяЗапись.origin = "cloud" И ОблачнаяЗапись.commandVersion = 7, "cloud origin");
-	Проверок = Проверок + 2;
+	Payload.workOrder.version = 8;
+	Проверить(ОблачнаяЗапись.payloadJSON = ПринятыйJSON, "immutable command JSON");
+	Проверить(ОблачнаяЗапись.payloadSHA256 = AvtoPultИнтеграция.SHA256(ПринятыйJSON), "command JSON hash");
+	Проверок = Проверок + 4;
 	Возврат Новый Структура("Проверок,Успех", Проверок, Истина);
 КонецФункции
 

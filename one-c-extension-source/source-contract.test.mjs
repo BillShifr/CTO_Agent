@@ -243,7 +243,10 @@ test('native draft writes retain transaction and post-write verification boundar
   );
   assert.match(orders, /ТранзакцияАктивна\(\)/);
   assert.match(orders, /AvtoPultКонтракт\.ПроверитьЗаказ\(Payload\)/);
-  assert.match(orders, /AvtoPultИзмененияЗаказов\.ЗаписатьИзОблака\(Документ, Заказ\.version\)/);
+  assert.match(
+    orders,
+    /AvtoPultИзмененияЗаказов\.ЗаписатьИзОблака\(Документ, Заказ\.version, Payload\)/,
+  );
   assert.match(orders, /СохраненныйСоставСовпадает\(/);
   assert.match(orders, /INVOICE_LOCKED/);
   assert.match(orders, /NATIVE_VERSION_CONFLICT/);
@@ -289,14 +292,44 @@ test('cloud writes scope their origin marker and native capture records command 
     new URL('./src/CommonModules/AvtoPultЗаказы/Module.bsl', import.meta.url),
     'utf8',
   );
-  assert.match(orders, /AvtoPultИзмененияЗаказов\.ЗаписатьИзОблака\(Документ, Заказ\.version\)/);
+  assert.match(
+    orders,
+    /AvtoPultИзмененияЗаказов\.ЗаписатьИзОблака\(Документ, Заказ\.version, Payload\)/,
+  );
   assert.match(source, /Запись\.Origin = ИсточникЗаписи\.origin/);
   assert.match(source, /Запись\.CommandVersion = ИсточникЗаписи\.commandVersion/);
   const start = source.indexOf('Процедура ЗаписатьИзОблака(');
   const body = source.slice(start, source.indexOf('КонецПроцедуры', start));
   assert.match(body, /Не ТранзакцияАктивна\(\)/);
   assert.match(body, /РежимЗаписиДокумента\.Запись/);
-  assert.equal(body.match(/ВосстановитьМаркер\(/g)?.length, 2);
+  assert.equal(body.match(/ВосстановитьМаркер\(/g)?.length, 4);
   assert.match(body, /Исключение[\s\S]*ВосстановитьМаркер[\s\S]*ВызватьИсключение;/);
   assert.doesNotMatch(body, /ОбменДанными\.Загрузка|ЗафиксироватьТранзакцию|НачатьТранзакцию/);
+});
+
+test('cloud revision freezes validated command payload before write and restores both markers', async () => {
+  const source = await readFile(
+    new URL('./src/CommonModules/AvtoPultИзмененияЗаказов/Module.bsl', import.meta.url),
+    'utf8',
+  );
+  const start = source.indexOf('Процедура ЗаписатьИзОблака(');
+  const body = source.slice(start, source.indexOf('КонецПроцедуры', start));
+  assert.ok(
+    body.indexOf('ПроверитьКоманду(Payload, ВерсияКоманды)') < body.indexOf('Документ.Записать('),
+  );
+  assert.ok(
+    body.indexOf('PayloadJSON = AvtoPultКонтракт.JSON(Payload)') <
+      body.indexOf('Документ.Записать('),
+  );
+  assert.match(body, /COMMAND_DOCUMENT_MISMATCH/);
+  assert.equal(body.match(/ВосстановитьМаркер\(Свойства, "AvtoPultPayloadКоманды"/g)?.length, 2);
+  assert.equal(body.match(/ВосстановитьМаркер\(Свойства, "AvtoPultВерсияКоманды"/g)?.length, 2);
+  assert.match(source, /Запись\.AcceptedCloudPayloadJSON = ИсточникЗаписи\.payloadJSON/);
+  assert.match(source, /Запись\.AcceptedCloudPayloadSHA256 = ИсточникЗаписи\.payloadSHA256/);
+  assert.match(source, /ИсточникЗаписи\.workOrderId <> Связь\.WorkOrderId/);
+  assert.match(source, /Свойство\(Заказ, "version"\) <> ВерсияКоманды/);
+  assert.match(source, /ORPHAN_COMMAND_PAYLOAD/);
+  assert.match(source, /COMMAND_PAYLOAD_REQUIRED/);
+  assert.match(source, /ПроверитьКоманду\(Payload, ВерсияКоманды\)/);
+  assert.match(source, /AvtoPultИнтеграция\.SHA256\(PayloadJSON\)/);
 });

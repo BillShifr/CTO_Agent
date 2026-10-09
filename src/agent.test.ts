@@ -300,6 +300,89 @@ describe('1C invoice document relay integrity failure', () => {
   });
 });
 
+describe('1C relay order isolation', () => {
+  it.each(['conflict', 'unavailable', 'lost-ack', 'wrong-receipt'])(
+    'blocks successors but delivers another order after %s and retries on restart',
+    async (failure) => {
+      const directory = await mkdtemp(join(tmpdir(), 'avtopult-one-c-isolation-'));
+      directories.push(directory);
+      const pending = new Set(['first', 'successor', 'independent']);
+      let recovered = false;
+      const observed = stubObservedFetch(async (url, init) => {
+        if (url.endsWith('/events/claim')) return Response.json(isolatedOrderClaim(pending));
+        if (url.endsWith('/integrations/one-c/callback')) {
+          const event = JSON.parse(String(init?.body)) as { eventId: string };
+          return isolationReceipt(event.eventId, recovered ? 'none' : failure);
+        }
+        for (const id of pending) {
+          if (!url.endsWith(`/events/${id}/ack`)) continue;
+          if (losesAcknowledgement(recovered, id, failure)) throw new Error('lost acknowledgement');
+          pending.delete(id);
+          return new Response(null, { status: 204 });
+        }
+        return agentPollResponse(url) ?? noCommandOrUnexpected(url);
+      });
+      await agentFor(directory).runOnce();
+      const callbacks = () =>
+        observed
+          .filter((entry) => entry.url.endsWith('/integrations/one-c/callback'))
+          .map((entry) => (JSON.parse(String(entry.init?.body)) as { eventId: string }).eventId);
+      expect(callbacks()).toEqual(['first', 'independent']);
+      expect([...pending]).toEqual(['first', 'successor']);
+      const heartbeat = observed.find((entry) => entry.url.endsWith('/heartbeat'));
+      expect(JSON.parse(String(heartbeat?.init?.body))).toMatchObject({
+        failures: ['one_c_events'],
+      });
+      recovered = true;
+      await agentFor(directory).runOnce();
+      expect(callbacks()).toEqual(['first', 'independent', 'first', 'successor']);
+      expect(pending.size).toBe(0);
+    },
+  );
+});
+
+function isolationFailure(failure: string): Response | null {
+  if (failure === 'conflict') return new Response(null, { status: 409 });
+  if (failure === 'unavailable') return new Response(null, { status: 503 });
+  if (failure === 'wrong-receipt')
+    return Response.json({ accepted: true, eventId: 'other', workOrderVersion: 5 });
+  return null;
+}
+
+function losesAcknowledgement(recovered: boolean, id: string, failure: string): boolean {
+  return !recovered && id === 'first' && failure === 'lost-ack';
+}
+
+function isolationReceipt(eventId: string, failure: string): Response {
+  if (eventId === 'first') {
+    const failed = isolationFailure(failure);
+    if (failed !== null) return failed;
+  }
+  return Response.json({
+    accepted: true,
+    eventId,
+    workOrderVersion: eventId === 'successor' ? 6 : 5,
+  });
+}
+
+function isolatedOrderClaim(pending: Set<string>) {
+  const original = orderEventClaim().events[0]!;
+  return {
+    events: ['first', 'successor', 'independent']
+      .filter((id) => pending.has(id))
+      .map((id) => ({
+        ...original,
+        event: {
+          ...original.event,
+          eventId: id,
+          baseVersion: id === 'successor' ? 5 : 4,
+          workOrderId: id === 'independent' ? 'wo-2' : 'wo-1',
+          workOrderExternalId: id === 'independent' ? 'native-2' : 'native-1',
+        },
+      })),
+  };
+}
+
 describe('1C outbound event relay', () => {
   it('resends the original version after losing the native ACK response and restarting', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'avtopult-one-c-revision-restart-'));
@@ -334,16 +417,7 @@ describe('1C outbound event relay', () => {
   });
 
   it('returns the durable cloud version to 1C after an order revision', async () => {
-    const directory = await mkdtemp(join(tmpdir(), 'avtopult-one-c-revision-'));
-    directories.push(directory);
-    const observed = stubObservedFetch(async (url) => {
-      if (url.endsWith('/events/claim')) return Response.json(orderEventClaim());
-      if (url.endsWith('/integrations/one-c/callback'))
-        return Response.json({ accepted: true, eventId: 'order-revision-1', workOrderVersion: 7 });
-      if (url.endsWith('/events/order-revision-1/ack')) return new Response(null, { status: 204 });
-      return agentPollResponse(url) ?? noCommandOrUnexpected(url);
-    });
-    await agentFor(directory).runOnce();
+    const observed = await relayOrderVersion(7);
     const ack = observed.find((entry) => entry.url.endsWith('/events/order-revision-1/ack'));
     expect(JSON.parse(String(ack?.init?.body))).toEqual({
       leaseToken: 'l'.repeat(32),
@@ -354,19 +428,7 @@ describe('1C outbound event relay', () => {
   it.each([undefined, 4])(
     'does not acknowledge an order with unusable result version %s',
     async (version) => {
-      const directory = await mkdtemp(join(tmpdir(), 'avtopult-one-c-revision-invalid-'));
-      directories.push(directory);
-      const observed = stubObservedFetch(async (url) => {
-        if (url.endsWith('/events/claim')) return Response.json(orderEventClaim());
-        if (url.endsWith('/integrations/one-c/callback'))
-          return Response.json({
-            accepted: true,
-            eventId: 'order-revision-1',
-            workOrderVersion: version,
-          });
-        return agentPollResponse(url) ?? noCommandOrUnexpected(url);
-      });
-      await agentFor(directory).runOnce();
+      const observed = await relayOrderVersion(version);
       expect(observed.some((entry) => entry.url.endsWith('/events/order-revision-1/ack'))).toBe(
         false,
       );
@@ -579,6 +641,24 @@ function invoiceDocumentClaim(eventId: string, documentSha256: string) {
       },
     ],
   };
+}
+
+async function relayOrderVersion(version: number | undefined) {
+  const directory = await mkdtemp(join(tmpdir(), 'avtopult-one-c-revision-'));
+  directories.push(directory);
+  const observed = stubObservedFetch(async (url) => {
+    if (url.endsWith('/events/claim')) return Response.json(orderEventClaim());
+    if (url.endsWith('/integrations/one-c/callback'))
+      return Response.json({
+        accepted: true,
+        eventId: 'order-revision-1',
+        workOrderVersion: version,
+      });
+    if (url.endsWith('/events/order-revision-1/ack')) return new Response(null, { status: 204 });
+    return agentPollResponse(url) ?? noCommandOrUnexpected(url);
+  });
+  await agentFor(directory).runOnce();
+  return observed;
 }
 
 function orderEventClaim() {
