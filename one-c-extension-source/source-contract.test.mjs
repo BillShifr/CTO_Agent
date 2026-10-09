@@ -2,6 +2,9 @@ import assert from 'node:assert/strict';
 import { readFile, readdir } from 'node:fs/promises';
 import test from 'node:test';
 
+const readCommonModule = (name) =>
+  readFile(new URL(`./src/CommonModules/${name}/Module.bsl`, import.meta.url), 'utf8');
+
 const moduleSource = await readFile(
   new URL('./src/CommonModules/AvtoPultIntegration/Module.bsl', import.meta.url),
   'utf8',
@@ -302,14 +305,8 @@ test('native order subscription captures immutable revisions without guessing cl
 });
 
 test('cloud writes scope their origin marker and native capture records command version', async () => {
-  const source = await readFile(
-    new URL('./src/CommonModules/AvtoPultИзмененияЗаказов/Module.bsl', import.meta.url),
-    'utf8',
-  );
-  const orders = await readFile(
-    new URL('./src/CommonModules/AvtoPultЗаказы/Module.bsl', import.meta.url),
-    'utf8',
-  );
+  const source = await readCommonModule('AvtoPultИзмененияЗаказов');
+  const orders = await readCommonModule('AvtoPultЗаказы');
   assert.match(
     orders,
     /AvtoPultИзмененияЗаказов\.ЗаписатьИзОблака\(Документ, Заказ\.version, Payload\)/,
@@ -353,14 +350,8 @@ test('cloud revision freezes validated command payload before write and restores
 });
 
 test('cloud write checks the persisted projection after all native write handlers', async () => {
-  const source = await readFile(
-    new URL('./src/CommonModules/AvtoPultИзмененияЗаказов/Module.bsl', import.meta.url),
-    'utf8',
-  );
-  const orders = await readFile(
-    new URL('./src/CommonModules/AvtoPultЗаказы/Module.bsl', import.meta.url),
-    'utf8',
-  );
+  const source = await readCommonModule('AvtoPultИзмененияЗаказов');
+  const orders = await readCommonModule('AvtoPultЗаказы');
   const body = orders.slice(0, orders.indexOf('КонецФункции'));
   const freeze = body.indexOf(
     'ОжидаемыйСнимокJSON = AvtoPultИзмененияЗаказов.СнимокЗаписиJSON(Документ)',
