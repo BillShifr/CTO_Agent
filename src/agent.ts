@@ -322,13 +322,24 @@ export class OneCAgent {
       const accepted = oneCAgentInboundReceiptSchema.parse(await json(receipt));
       if (accepted.eventId !== claimedEvent.event.eventId)
         throw new Error('1C callback receipt event id mismatch');
+      if (
+        claimedEvent.event.event === 'workorder.changed' &&
+        (accepted.workOrderVersion === undefined ||
+          accepted.workOrderVersion <= claimedEvent.event.baseVersion)
+      )
+        throw new Error('1C callback resulting version unavailable');
       const acknowledgement = await this.local(
         `events/${encodeURIComponent(claimedEvent.event.eventId)}/ack`,
         {
           method: 'POST',
           headers: { 'content-type': 'application/json; charset=utf-8' },
           body: JSON.stringify(
-            oneCAgentInboundAckSchema.parse({ leaseToken: claimedEvent.leaseToken }),
+            oneCAgentInboundAckSchema.parse({
+              leaseToken: claimedEvent.leaseToken,
+              ...(claimedEvent.event.event === 'workorder.changed'
+                ? { workOrderVersion: accepted.workOrderVersion }
+                : {}),
+            }),
           ),
         },
       );

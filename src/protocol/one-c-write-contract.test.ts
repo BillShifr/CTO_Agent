@@ -31,6 +31,21 @@ const workOrder = {
 };
 
 describe('1C write contract', () => {
+  it('preserves stable identities and actual line policy through wire validation', () => {
+    const enriched = {
+      ...workOrder,
+      clientId: 'client-42',
+      vehicleId: 'vehicle-42',
+      items: [{ ...workOrder.items[0], mechanicShare: 75, requiresApproval: true }],
+    };
+    expect(
+      oneCWorkOrderUpsertRequestSchema.parse({
+        contractVersion: ONE_C_WRITE_CONTRACT_VERSION,
+        workOrder: enriched,
+      }).workOrder,
+    ).toEqual(enriched);
+  });
+
   it('accepts the canonical work-order request and acknowledgement', () => {
     expect(
       oneCWorkOrderUpsertRequestSchema.parse({

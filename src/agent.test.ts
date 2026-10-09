@@ -301,6 +301,82 @@ describe('1C invoice document relay integrity failure', () => {
 });
 
 describe('1C outbound event relay', () => {
+  it('resends the original version after losing the native ACK response and restarting', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'avtopult-one-c-revision-restart-'));
+    directories.push(directory);
+    let attempts = 0;
+    let claims = 0;
+    const observed = stubObservedFetch(async (url) => {
+      if (url.endsWith('/events/claim')) {
+        const claim = orderEventClaim();
+        claim.events[0]!.leaseToken = (++claims === 1 ? 'l' : 'm').repeat(32);
+        return Response.json(claim);
+      }
+      if (url.endsWith('/integrations/one-c/callback'))
+        return Response.json({ accepted: true, eventId: 'order-revision-1', workOrderVersion: 7 });
+      if (url.endsWith('/events/order-revision-1/ack')) {
+        attempts++;
+        if (attempts === 1) throw new Error('lost ACK response');
+        return new Response(null, { status: 204 });
+      }
+      return agentPollResponse(url) ?? noCommandOrUnexpected(url);
+    });
+    await agentFor(directory).runOnce();
+    await agentFor(directory).runOnce();
+    const acknowledgements = observed.filter((entry) =>
+      entry.url.endsWith('/events/order-revision-1/ack'),
+    );
+    expect(acknowledgements).toHaveLength(2);
+    expect(acknowledgements.map((entry) => JSON.parse(String(entry.init?.body)))).toEqual([
+      { leaseToken: 'l'.repeat(32), workOrderVersion: 7 },
+      { leaseToken: 'm'.repeat(32), workOrderVersion: 7 },
+    ]);
+  });
+
+  it('returns the durable cloud version to 1C after an order revision', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'avtopult-one-c-revision-'));
+    directories.push(directory);
+    const observed = stubObservedFetch(async (url) => {
+      if (url.endsWith('/events/claim')) return Response.json(orderEventClaim());
+      if (url.endsWith('/integrations/one-c/callback'))
+        return Response.json({ accepted: true, eventId: 'order-revision-1', workOrderVersion: 7 });
+      if (url.endsWith('/events/order-revision-1/ack')) return new Response(null, { status: 204 });
+      return agentPollResponse(url) ?? noCommandOrUnexpected(url);
+    });
+    await agentFor(directory).runOnce();
+    const ack = observed.find((entry) => entry.url.endsWith('/events/order-revision-1/ack'));
+    expect(JSON.parse(String(ack?.init?.body))).toEqual({
+      leaseToken: 'l'.repeat(32),
+      workOrderVersion: 7,
+    });
+  });
+
+  it.each([undefined, 4])(
+    'does not acknowledge an order with unusable result version %s',
+    async (version) => {
+      const directory = await mkdtemp(join(tmpdir(), 'avtopult-one-c-revision-invalid-'));
+      directories.push(directory);
+      const observed = stubObservedFetch(async (url) => {
+        if (url.endsWith('/events/claim')) return Response.json(orderEventClaim());
+        if (url.endsWith('/integrations/one-c/callback'))
+          return Response.json({
+            accepted: true,
+            eventId: 'order-revision-1',
+            workOrderVersion: version,
+          });
+        return agentPollResponse(url) ?? noCommandOrUnexpected(url);
+      });
+      await agentFor(directory).runOnce();
+      expect(observed.some((entry) => entry.url.endsWith('/events/order-revision-1/ack'))).toBe(
+        false,
+      );
+      const heartbeat = observed.find((entry) => entry.url.endsWith('/heartbeat'));
+      expect(JSON.parse(String(heartbeat?.init?.body))).toMatchObject({
+        failures: ['one_c_events'],
+      });
+    },
+  );
+
   it('acknowledges the local outbox only after Cloud accepts the exact event', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'avtopult-one-c-events-'));
     directories.push(directory);
@@ -499,6 +575,26 @@ function invoiceDocumentClaim(eventId: string, documentSha256: string) {
           issuedAt: '2026-10-06T10:00:00.000Z',
           amountTiyn: '50000',
           documentSha256,
+        },
+      },
+    ],
+  };
+}
+
+function orderEventClaim() {
+  return {
+    events: [
+      {
+        leaseToken: 'l'.repeat(32),
+        event: {
+          event: 'workorder.changed',
+          eventId: 'order-revision-1',
+          workOrderId: 'wo-1',
+          workOrderExternalId: 'one-c-order-1',
+          baseVersion: 4,
+          externalVersion: 'native-v1',
+          changedAt: '2026-10-09T00:00:00Z',
+          items: [],
         },
       },
     ],
