@@ -81,6 +81,13 @@
 	ВосстановитьМаркер(Свойства, "AvtoPultPayloadКоманды", БылPayload, ПрежнийPayload);
 КонецПроцедуры
 
+Функция СнимокЗаписиJSON(Документ) Экспорт
+	Снимок = СнимокЗаказа(Документ);
+	// Creation allocates the reference during Write; retain every other captured field.
+	Снимок.Удалить("externalId");
+	Возврат AvtoPultКонтракт.JSON(Снимок);
+КонецФункции
+
 Функция ОпределитьИсточник(Свойства) Экспорт
 	Если Не Свойства.Свойство("AvtoPultВерсияКоманды", ВерсияКоманды) Тогда
 		Если Свойства.Свойство("AvtoPultPayloadКоманды") Тогда ВызватьИсключение "ORPHAN_COMMAND_PAYLOAD"; КонецЕсли;

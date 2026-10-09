@@ -351,3 +351,33 @@ test('cloud revision freezes validated command payload before write and restores
   assert.match(source, /ПроверитьКоманду\(Payload, ВерсияКоманды\)/);
   assert.match(source, /AvtoPultИнтеграция\.SHA256\(PayloadJSON\)/);
 });
+
+test('cloud write checks the persisted projection after all native write handlers', async () => {
+  const source = await readFile(
+    new URL('./src/CommonModules/AvtoPultИзмененияЗаказов/Module.bsl', import.meta.url),
+    'utf8',
+  );
+  const orders = await readFile(
+    new URL('./src/CommonModules/AvtoPultЗаказы/Module.bsl', import.meta.url),
+    'utf8',
+  );
+  const body = orders.slice(0, orders.indexOf('КонецФункции'));
+  const freeze = body.indexOf(
+    'ОжидаемыйСнимокJSON = AvtoPultИзмененияЗаказов.СнимокЗаписиJSON(Документ)',
+  );
+  const write = body.indexOf('AvtoPultИзмененияЗаказов.ЗаписатьИзОблака(');
+  const reread = body.indexOf('Документ = Документ.Ссылка.ПолучитьОбъект()');
+  const verify = body.indexOf('ОжидаемыйСнимокJSON <> AvtoPultИзмененияЗаказов.СнимокЗаписиJSON');
+  assert.ok(freeze >= 0 && freeze < write);
+  assert.ok(write < reread && reread < verify && verify < body.indexOf('Связь.Записать()'));
+  assert.match(body, /Возврат AvtoPultКонтракт\.Ошибка\("NATIVE_PROJECTION_CHANGED",[^\n]+409\)/);
+  const projectionStart = source.indexOf('Функция СнимокЗаписиJSON(');
+  const projection = source.slice(projectionStart, source.indexOf('КонецФункции', projectionStart));
+  assert.match(projection, /Снимок = СнимокЗаказа\(Документ\)/);
+  assert.deepEqual(
+    [...projection.matchAll(/Удалить\("([^"]+)"\)/g)].map((m) => m[1]),
+    ['externalId'],
+  );
+  assert.match(projection, /Возврат AvtoPultКонтракт\.JSON\(Снимок\)/);
+  assert.doesNotMatch(body, /ЗафиксироватьТранзакцию|ОбменДанными\.Загрузка/);
+});

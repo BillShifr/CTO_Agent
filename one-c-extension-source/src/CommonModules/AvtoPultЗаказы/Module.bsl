@@ -98,10 +98,15 @@
 	Ошибка = ЗаполнитьСтроки(Документ, Образец, Заказ);
 	Если Ошибка <> Неопределено Тогда Возврат Ошибка; КонецЕсли;
 	Документ.СуммаДокумента = AvtoPultКонтракт.Тиыны(Заказ.totalTiyn) / 100;
+	ОжидаемыйСнимокJSON = AvtoPultИзмененияЗаказов.СнимокЗаписиJSON(Документ);
 	// Never post or enable data-exchange bypass: native validation remains active.
 	AvtoPultИзмененияЗаказов.ЗаписатьИзОблака(Документ, Заказ.version, Payload);
 	// Read stored values: native handlers and numeric qualifiers must not silently alter money.
 	Документ = Документ.Ссылка.ПолучитьОбъект();
+	// OnWrite alone is not final evidence: later native handlers may change the document.
+	Если ОжидаемыйСнимокJSON <> AvtoPultИзмененияЗаказов.СнимокЗаписиJSON(Документ) Тогда
+		Возврат AvtoPultКонтракт.Ошибка("NATIVE_PROJECTION_CHANGED", "1С изменила поля заказа; запись отменена", 409);
+	КонецЕсли;
 	Если Не СохраненныйСоставСовпадает(Документ, Заказ)
 		Или Документ.Партнер <> Клиент.Партнер Или Документ.Контрагент <> Клиент.Контрагент
 		Или Документ.Автомобиль <> Автомобиль.Автомобиль Тогда
