@@ -5,6 +5,22 @@ import test from 'node:test';
 const readCommonModule = (name) =>
   readFile(new URL(`./src/CommonModules/${name}/Module.bsl`, import.meta.url), 'utf8');
 
+test('revision freezes row identities before its JSON and hash are persisted', async () => {
+  const source = await readCommonModule('AvtoPultИзмененияЗаказов');
+  assert.match(source, /ЗафиксироватьИдентичностьСтрок\(Снимок, Связь\.WorkOrderId\)/);
+  assert.ok(
+    source.indexOf('ЗафиксироватьИдентичностьСтрок(Снимок, Связь.WorkOrderId)') <
+      source.indexOf('СнимокJSON = AvtoPultКонтракт.JSON(Снимок)'),
+  );
+  assert.match(source, /РегистрСведений\.AvtoPultСтрокиЗаказов ГДЕ WorkOrderId = &WorkOrderId/);
+  assert.match(source, /Снимок\.schemaVersion = 2/);
+  assert.match(source, /Позиция\.Вставить\("itemId", Идентичность\.itemId\)/);
+  assert.match(source, /Позиция\.Вставить\("identityState", Идентичность\.state\)/);
+  assert.match(source, /Функция ИдентичностьСтроки\([^\n]+\) Экспорт/);
+  assert.match(source, /Совпадений <> 1 Или Найденная\.catalogId <> CatalogId/);
+  assert.match(source, /Коды\.Получить\(Позиция\.lineCode\) > 1/);
+});
+
 const moduleSource = await readFile(
   new URL('./src/CommonModules/AvtoPultIntegration/Module.bsl', import.meta.url),
   'utf8',
