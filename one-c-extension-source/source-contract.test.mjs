@@ -47,6 +47,24 @@ test('outbox source keeps delivery durable and token fenced', () => {
   assert.match(moduleSource, /ПоставитьPDFСчетаВОчердь\([^)]*\) Экспорт/);
 });
 
+test('native claims retain leased heads and order by durable insertion sequence', () => {
+  const start = moduleSource.indexOf('Функция ПолучитьИсходящиеОбъекты(');
+  const body = moduleSource.slice(start, moduleSource.indexOf('КонецФункции', start));
+  assert.match(body, /Очередь\.Состояние <> &Доставлено/);
+  assert.match(body, /УПОРЯДОЧИТЬ ПО Очередь\.Порядок/);
+  assert.doesNotMatch(body, /ВЫБРАТЬ ПЕРВЫЕ/);
+  assert.match(body, /ЭтоДоступнаяГолова\(Выборка, Заказы, Сейчас\)/);
+  assert.match(body, /Элементы\.Количество\(\) >= Лимит/);
+  const headStart = moduleSource.indexOf('Функция ЭтоДоступнаяГолова(');
+  const head = moduleSource.slice(headStart, moduleSource.indexOf('КонецФункции', headStart));
+  assert.ok(head.indexOf('Заказы.Вставить') < head.indexOf('Запись.LeaseUntil'));
+  assert.match(head, /OUTBOX_ORDERING_MIGRATION_REQUIRED/);
+  for (const field of ['Порядок', 'КлючЗаказа']) {
+    assert.match(moduleSource, new RegExp(`НоваяЗапись\\.${field} = Запись\\.${field}`));
+  }
+  assert.match(moduleSource, /Запись\.Порядок = СледующийПорядокОчереди\(\)/);
+});
+
 test('order ACK persists the validated cloud result in the delivery transaction', () => {
   const start = moduleSource.indexOf('Функция ПодтвердитьИсходящийОбъект(');
   const body = moduleSource.slice(start, moduleSource.indexOf('КонецФункции', start));
