@@ -18,6 +18,9 @@ jobs:
       - run: npm install --global npm@11.6.1
       - run: npm ci
       - run: npm run check
+      - name: Exercise containerised Cloud and 1C emulation
+        if: runner.os == 'Ubuntu'
+        run: npm run test:docker-emulation
       - name: Parse Windows service scripts
         if: runner.os == 'Windows'
         shell: pwsh
