@@ -41,11 +41,19 @@ export async function runAgentDiagnostics(
   checks.push(
     config.smartPos === undefined
       ? { name: 'smart_pos', status: 'disabled', detail: 'Smart POS is not configured' }
-      : await httpCheck(config, 'smart_pos', new URL('health', config.smartPos.url), {
-          headers: { authorization: `Bearer ${config.smartPos.token}`, accept: 'application/json' },
-        }),
+      : await smartPosCheck(config),
   );
   return checks;
+}
+
+async function smartPosCheck(config: AgentConfig): Promise<DiagnosticCheck> {
+  if (config.smartPos === undefined)
+    return { name: 'smart_pos', status: 'disabled', detail: 'Smart POS is not configured' };
+  const url = new URL('/v2/status', config.smartPos.url);
+  url.searchParams.set('processId', 'avtopult-read-only-diagnostic');
+  return await httpCheck(config, 'smart_pos', url, {
+    headers: { accesstoken: config.smartPos.token, accept: 'application/json' },
+  });
 }
 
 export function diagnosticsSucceeded(checks: readonly DiagnosticCheck[]): boolean {
