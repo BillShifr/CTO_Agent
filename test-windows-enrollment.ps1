@@ -3,10 +3,11 @@ $ErrorActionPreference = 'Stop'
 
 $script:requestBody = $null
 $script:cacheableResponse = $false
+$script:enrollmentCodeLength = 32
 function global:Read-Host {
     param([string]$Prompt, [switch]$AsSecureString)
     if (-not $AsSecureString) { throw 'Enrollment code must be requested as a SecureString.' }
-    return ConvertTo-SecureString ('e' * 32) -AsPlainText -Force
+    return ConvertTo-SecureString ('e' * $script:enrollmentCodeLength) -AsPlainText -Force
 }
 function global:Invoke-WebRequest {
     param([switch]$UseBasicParsing, $Method, $Uri, $ContentType, $Headers, $Body)
@@ -27,6 +28,13 @@ if ($credential.agentId -ne 'issued-agent' -or $credential.agentSecret -ne ('s' 
 }
 if ($script:requestBody.enrollmentCode -ne ('e' * 32)) { throw 'Enrollment code was not sent.' }
 if ([string]::IsNullOrWhiteSpace($script:requestBody.agentName)) { throw 'Agent machine name was not sent.' }
+
+$script:enrollmentCodeLength = 31
+$refusedShortCode = $false
+try { Request-AgentEnrollmentCredential 'https://api.example.kz/api/v1/' | Out-Null }
+catch { $refusedShortCode = $true }
+if (-not $refusedShortCode) { throw 'An enrollment code shorter than the server contract was accepted.' }
+$script:enrollmentCodeLength = 32
 
 $script:cacheableResponse = $true
 $refusedCacheableResponse = $false

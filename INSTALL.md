@@ -163,7 +163,7 @@ powershell -ExecutionPolicy Bypass -File C:\AvtoPult\OneCAgent\uninstall-service
     "purchasePriceTypeId": "<GUID>",
     "defaultServiceNormHours": 0.5
   },
-  "callback": { "secretRef": "env:ONE_C_AGENT_SECRET" }
+  "callback": { "secretRef": "env:ONE_C_CALLBACK_SECRET" }
 }
 ```
 

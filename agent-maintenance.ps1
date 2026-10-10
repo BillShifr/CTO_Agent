@@ -24,7 +24,7 @@ function Request-AgentEnrollmentCredential([string]$ApiUrl) {
     if (-not $ApiUrl.StartsWith('https://', [StringComparison]::OrdinalIgnoreCase)) {
         throw 'ApiUrl must use HTTPS.'
     }
-    $enrollmentCode = Read-AgentPlainSecret 'One-time AvtoPult enrollment code' 16
+    $enrollmentCode = Read-AgentPlainSecret 'One-time AvtoPult enrollment code' 32
     $body = $null
     $response = $null
     try {
