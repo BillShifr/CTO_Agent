@@ -57,3 +57,4 @@ jobs:
         with:
           name: one-c-agent-${{ matrix.os }}
           path: .artifacts/
+          include-hidden-files: true

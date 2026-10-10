@@ -94,5 +94,8 @@ describe('Windows release artifact', () => {
     expect(await readFile(resolve(workspace, 'rotate-secrets.ps1'), 'utf8')).toContain(
       'Invoke-AgentConfigSwap',
     );
+    const workflow = await readFile(resolve(workspace, '.github/workflows/ci.yml'), 'utf8');
+    expect(workflow).toContain('path: .artifacts/');
+    expect(workflow).toContain('include-hidden-files: true');
   });
 });
