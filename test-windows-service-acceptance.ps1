@@ -57,6 +57,26 @@ try {
     & (Join-Path $PSScriptRoot 'install-service.ps1') -NodeExe (Get-Command node.exe).Source -AgentDirectory $current -WinSWExe $WinSWExe -ConfigFile $config
     Wait-Marker 'old'
 
+    $installAcl = Get-Acl -LiteralPath $current
+    if (-not $installAcl.AreAccessRulesProtected) { throw 'Agent installation directory still inherits permissions.' }
+    $allowedInstallerSids = @('S-1-5-18', 'S-1-5-32-544')
+    foreach ($rule in $installAcl.Access) {
+        $sid = $rule.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value
+        if ($rule.AccessControlType -eq 'Allow' -and $sid -notin $allowedInstallerSids) {
+            throw "Unexpected installation-directory access rule: $sid"
+        }
+    }
+
+    $reinstallFailed = $false
+    try {
+        & (Join-Path $PSScriptRoot 'install-service.ps1') -NodeExe (Get-Command node.exe).Source -AgentDirectory $current -WinSWExe $WinSWExe -ConfigFile $config
+    }
+    catch { $reinstallFailed = $true }
+    if (-not $reinstallFailed) { throw 'A second install replaced the running service instead of requiring update-service.ps1.' }
+    $serviceAfterRejectedInstall = Get-Service -Name $serviceName
+    $serviceAfterRejectedInstall.Refresh()
+    if ($serviceAfterRejectedInstall.Status -ne 'Running') { throw 'Rejected reinstall disrupted the running service.' }
+
     & (Join-Path $PSScriptRoot 'update-service.ps1') -NodeExe (Get-Command node.exe).Source -CurrentDirectory $current -ReleaseDirectory $goodRelease -ConfigFile $config
     Wait-Marker 'good'
 

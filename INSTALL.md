@@ -51,8 +51,10 @@ npm run bundle
 ```
 
 Готовый автономный JavaScript bundle, установщик, деинсталлятор и `SHA256SUMS` появляются в
-`.artifacts/one-c-agent`. В CI эта папка публикуется отдельным artifact. На Windows нужен только
-Node.js 22 LTS и проверенный service-wrapper WinSW 2.12.0 x64. Обычный `sc.exe create node.exe`
+`.artifacts/one-c-agent`. Windows job CI дополнительно публикует единый архив
+`AvtoPult-OneCAgent-windows-x64.zip`, его внешний SHA-256 и уже проверенный `WinSW-x64.exe`.
+Перед распаковкой сверьте внешний hash архива, после распаковки — внутренний `SHA256SUMS`.
+На Windows дополнительно нужен только Node.js 22 LTS. Обычный `sc.exe create node.exe`
 не используется: Node.js сам по себе не реализует протокол Windows Service Control Manager.
 
 Скачайте `WinSW-x64.exe` только из [официального release WinSW
@@ -86,13 +88,14 @@ powershell -ExecutionPolicy Bypass -File C:\AvtoPult\OneCAgent\configure-environ
 ```powershell
 powershell -ExecutionPolicy Bypass -File C:\AvtoPult\OneCAgent\install-service.ps1 `
   -NodeExe 'C:\Program Files\nodejs\node.exe' `
-  -AgentDirectory 'C:\AvtoPult\OneCAgent' `
-  -WinSWExe 'C:\Install\WinSW-x64.exe'
+  -AgentDirectory 'C:\AvtoPult\OneCAgent'
 ```
 
-Установщик проверяет наличие полей конфигурации без вывода их значений, ограничивает ACL каталога
-состояния, устанавливает автозапуск с задержкой, три перезапуска и ротацию логов. Повторный запуск
-обновляет существующую службу. Непереданный ответ атомарно сохраняется на диске и
+Установщик проверяет WinSW из release-пакета и наличие полей конфигурации без вывода их значений,
+ограничивает ACL каталогов состояния и исполняемого кода, устанавливает автозапуск с задержкой,
+три перезапуска и ротацию логов. При ошибке первой установки созданная служба удаляется. Повторный
+запуск установщика для существующей службы запрещён: обновление выполняется только через
+`update-service.ps1`, который автоматически возвращает предыдущую версию при сбое. Непереданный ответ атомарно сохраняется на диске и
 отправляется после восстановления сети до получения новой команды. Cloud lease возвращает
 зависшую команду в очередь. Защита от повторного бизнес-эффекта требует реализации атомарной
 идемпотентности серверным модулем 1С; один заголовок `Idempotency-Key` этого не обеспечивает.

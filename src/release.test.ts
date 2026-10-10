@@ -27,6 +27,14 @@ describe('Windows release artifact', () => {
       true,
     );
     expect(entries.some((entry) => entry.endsWith('one-c-write-api.md'))).toBe(true);
+    expect(entries.some((entry) => entry.endsWith('RELEASE.json'))).toBe(true);
+    const metadata = JSON.parse(await readFile(resolve(release, 'RELEASE.json'), 'utf8')) as {
+      platform: string;
+      winsw: { included: boolean; sha256: string };
+    };
+    expect(metadata.platform).toBe('windows-x64');
+    expect(metadata.winsw.included).toBe(false);
+    expect(metadata.winsw.sha256).toMatch(/^[a-f\d]{64}$/);
     for (const name of [
       'agent-maintenance.ps1',
       'diagnose-agent.ps1',
@@ -69,6 +77,9 @@ describe('Windows release artifact', () => {
     expect(installer).toContain('& $wrapper install');
     expect(installer).not.toMatch(/sc\.exe\s+create/i);
     expect(installer).toContain('AVTOPULT_AGENT_CONFIG_FILE');
+    expect(installer).toContain('Use update-service.ps1 for a transactional update.');
+    expect(installer).toContain('Failed to restrict the agent installation directory ACL.');
+    expect(installer).toContain('Start-Sleep -Seconds 5');
     expect(installer).not.toContain("GetEnvironmentVariable($_, 'Machine')");
     const configurator = await readFile(resolve(workspace, 'configure-environment.ps1'), 'utf8');
     expect(configurator).toContain('SetAccessRuleProtection($true, $false)');

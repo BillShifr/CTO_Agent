@@ -4,9 +4,17 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
 
+const winswArgument = process.argv.indexOf('--winsw');
+const winswSource = winswArgument === -1 ? null : process.argv[winswArgument + 1];
+if (winswArgument !== -1 && !winswSource) throw new Error('--winsw requires a file path');
+const winswSha256 = '05b82d46ad331cc16bdc00de5c6332c1ef818df8ceefcd49c726553209b3a0da';
+
 const agentDirectory = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const repositoryDirectory = agentDirectory;
 const releaseDirectory = resolve(repositoryDirectory, '.artifacts/one-c-agent');
+const packageMetadata = JSON.parse(
+  await readFile(resolve(repositoryDirectory, 'package.json'), 'utf8'),
+);
 
 await rm(releaseDirectory, { recursive: true, force: true });
 await mkdir(releaseDirectory, { recursive: true });
@@ -38,6 +46,29 @@ await cp(
   resolve(repositoryDirectory, 'one-c-extension-source'),
   resolve(releaseDirectory, 'one-c-extension-source'),
   { recursive: true },
+);
+
+if (winswSource) {
+  const winswBytes = await readFile(resolve(winswSource));
+  const actual = createHash('sha256').update(winswBytes).digest('hex');
+  if (actual !== winswSha256) throw new Error('WinSW checksum mismatch');
+  await writeFile(resolve(releaseDirectory, 'WinSW-x64.exe'), winswBytes);
+}
+
+await writeFile(
+  resolve(releaseDirectory, 'RELEASE.json'),
+  `${JSON.stringify(
+    {
+      package: '@avtopult/one-c-agent',
+      version: packageMetadata.version,
+      node: '22.20.x',
+      platform: 'windows-x64',
+      winsw: { included: winswSource !== null, version: '2.12.0', sha256: winswSha256 },
+    },
+    null,
+    2,
+  )}\n`,
+  'utf8',
 );
 await cp(
   resolve(repositoryDirectory, 'one-c-write-api.md'),

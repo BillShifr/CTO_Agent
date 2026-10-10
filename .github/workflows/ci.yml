@@ -43,7 +43,17 @@ jobs:
             throw 'Downloaded WinSW checksum mismatch.'
           }
           ./test-windows-service-acceptance.ps1 -WinSWExe $winsw
+      - name: Build production Windows package
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          $winsw = Join-Path $env:RUNNER_TEMP 'WinSW-x64.exe'
+          node scripts/build-release.mjs --winsw $winsw
+          $archive = Join-Path $PWD '.artifacts\AvtoPult-OneCAgent-windows-x64.zip'
+          Compress-Archive -Path '.artifacts\one-c-agent\*' -DestinationPath $archive -CompressionLevel Optimal
+          $hash = (Get-FileHash $archive -Algorithm SHA256).Hash.ToLowerInvariant()
+          [IO.File]::WriteAllText("$archive.sha256", "$hash  AvtoPult-OneCAgent-windows-x64.zip`n", [Text.UTF8Encoding]::new($false))
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: one-c-agent-${{ matrix.os }}
-          path: .artifacts/one-c-agent/
+          path: .artifacts/
