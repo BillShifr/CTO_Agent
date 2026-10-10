@@ -22,7 +22,7 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          Get-ChildItem *.ps1 | ForEach-Object {
+          Get-ChildItem *.ps1, one-c-extension-source/tools/*.ps1 | ForEach-Object {
             $tokens = $null
             $errors = $null
             [void][System.Management.Automation.Language.Parser]::ParseFile($_.FullName, [ref]$tokens, [ref]$errors)

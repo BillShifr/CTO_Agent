@@ -183,6 +183,28 @@ test('Windows build pipeline validates, checks and exports the extension fail-cl
   assert.doesNotMatch(source, /CRM:|CheckOnly-|XhHXyq/);
 });
 
+test('offline package build cannot connect to or install into an existing infobase', async () => {
+  const source = await readFile(
+    new URL('./tools/Build-Offline-Package.ps1', import.meta.url),
+    'utf8',
+  );
+  assert.match(source, /CREATEINFOBASE/);
+  assert.match(source, /disposable-file-infobase/);
+  assert.match(source, /BaseConfigurationCf/);
+  assert.match(source, /Build-Extension\.ps1/);
+  assert.match(source, /Compress-Archive/);
+  assert.match(source, /Get-FileHash \$archive -Algorithm SHA256/);
+  assert.match(source, /installationIncluded = \$false/);
+  assert.match(source, /finally[\s\S]*Remove-Item \$workspace -Recurse -Force/);
+  assert.match(source, /-UserName ''[\s\S]*-Password ''/);
+  assert.match(
+    source,
+    /Copy-Item \$workingProject \(Join-Path \$source 'exported-project'\) -Recurse/,
+  );
+  assert.doesNotMatch(source, /-InfoBase|\/S|AVTOPULT_1C_USER|AVTOPULT_1C_PASSWORD/);
+  assert.doesNotMatch(source, /Install-TestExtension|I-CONFIRM-TEST-INFOBASE/);
+});
+
 test('test installation verifies CFE integrity and cannot target production by accident', async () => {
   const source = await readFile(
     new URL('./tools/Install-TestExtension.ps1', import.meta.url),
