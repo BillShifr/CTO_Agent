@@ -27,6 +27,23 @@ describe('Windows release artifact', () => {
       true,
     );
     expect(entries.some((entry) => entry.endsWith('one-c-write-api.md'))).toBe(true);
+    for (const name of [
+      'ORDER-METADATA.md',
+      'INVOICE-METADATA.md',
+      'REVERSE-METADATA.md',
+      'src/CommonModules/AvtoPultАдаптерКА2/Module.bsl',
+      'src/CommonModules/AvtoPultЗаказы/Module.bsl',
+      'src/CommonModules/AvtoPultИзмененияЗаказов/Module.bsl',
+      'src/CommonModules/AvtoPultКонтракт/Module.bsl',
+      'src/CommonModules/AvtoPultСамопроверка/Module.bsl',
+      'src/CommonModules/AvtoPultСчета/Module.bsl',
+    ]) {
+      const relative = `one-c-extension-source/${name}`;
+      expect(entries.some((entry) => entry.endsWith(`  ${relative}`))).toBe(true);
+      expect(await readFile(resolve(release, relative), 'utf8')).toBe(
+        await readFile(resolve(workspace, relative), 'utf8'),
+      );
+    }
     await expect(
       execute(process.execPath, [resolve(release, 'agent.mjs')], {
         cwd: release,

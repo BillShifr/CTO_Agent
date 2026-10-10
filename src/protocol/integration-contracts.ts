@@ -60,6 +60,8 @@ const oneCClientSchema = z.discriminatedUnion('type', [
 ]);
 export const oneCWorkOrderExportSchema = z.object({
   workOrderId: integrationIdSchema,
+  clientId: integrationIdSchema.optional(),
+  vehicleId: integrationIdSchema.optional(),
   externalId: z.string().optional(),
   number: z.string(),
   version: z.number().int(),
@@ -84,6 +86,8 @@ export const oneCWorkOrderExportSchema = z.object({
       quantity: z.number(),
       priceTiyn: z.coerce.bigint(),
       normHours: z.number().optional(),
+      mechanicShare: z.number().int().min(0).max(100).optional(),
+      requiresApproval: z.boolean().optional(),
     }),
   ),
   totalTiyn: z.coerce.bigint(),

@@ -96,6 +96,7 @@ export const oneCAgentInboundClaimResponseSchema = z
 export const oneCAgentInboundAckSchema = z
   .object({
     leaseToken: leaseTokenSchema,
+    workOrderVersion: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional(),
   })
   .strict();
 
@@ -103,6 +104,7 @@ export const oneCAgentInboundReceiptSchema = z
   .object({
     accepted: z.literal(true),
     eventId: z.string().trim().min(1).max(256),
+    workOrderVersion: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional(),
   })
   .strict();
 

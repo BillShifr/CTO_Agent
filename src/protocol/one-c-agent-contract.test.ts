@@ -3,12 +3,43 @@ import {
   canonicalAgentJson,
   oneCAgentClaimResponseSchema,
   oneCAgentResultSchema,
+  oneCAgentInboundAckSchema,
+  oneCAgentInboundReceiptSchema,
 } from './one-c-agent-contract.js';
 
 const id = 'a3f63973-d63f-4f07-8279-57300f22b409';
 const token = 'x'.repeat(32);
 
 describe('1C agent relay contract', () => {
+  it('carries the resulting order version without requiring it for payment receipts', () => {
+    expect(
+      oneCAgentInboundReceiptSchema.parse({ accepted: true, eventId: 'e-1', workOrderVersion: 7 })
+        .workOrderVersion,
+    ).toBe(7);
+    expect(
+      oneCAgentInboundAckSchema.parse({ leaseToken: token, workOrderVersion: 7 }).workOrderVersion,
+    ).toBe(7);
+    expect(
+      oneCAgentInboundReceiptSchema.parse({ accepted: true, eventId: 'e-1' }).workOrderVersion,
+    ).toBeUndefined();
+  });
+
+  it.each([0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1, '7', null])(
+    'rejects unsafe resulting version %s',
+    (workOrderVersion) => {
+      expect(
+        oneCAgentInboundReceiptSchema.safeParse({
+          accepted: true,
+          eventId: 'e-1',
+          workOrderVersion,
+        }).success,
+      ).toBe(false);
+      expect(
+        oneCAgentInboundAckSchema.safeParse({ leaseToken: token, workOrderVersion }).success,
+      ).toBe(false);
+    },
+  );
+
   it('canonicalizes nested object keys for JSONB-stable transfer hashes', () => {
     expect(canonicalAgentJson([{ z: 1, a: { y: 2, b: 3 } }])).toBe('[{"a":{"b":3,"y":2},"z":1}]');
   });
