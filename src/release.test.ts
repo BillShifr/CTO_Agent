@@ -77,7 +77,7 @@ describe('Windows release artifact', () => {
       "SetEnvironmentVariable($entry.Key, $entry.Value, 'Machine')",
     );
     expect(await readFile(resolve(workspace, 'update-service.ps1'), 'utf8')).toContain(
-      'Invoke-AgentDirectorySwap',
+      'Invoke-AgentPayloadSwap',
     );
     expect(await readFile(resolve(workspace, 'rotate-secrets.ps1'), 'utf8')).toContain(
       'Invoke-AgentConfigSwap',

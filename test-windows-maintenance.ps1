@@ -12,22 +12,24 @@ try {
     $prepared = Join-Path $root 'prepared'
     New-Item -ItemType Directory -Path $current, $prepared | Out-Null
     Set-Content -LiteralPath (Join-Path $current 'version') -Value 'old' -NoNewline
+    Set-Content -LiteralPath (Join-Path $current 'service.exe') -Value 'stable-wrapper' -NoNewline
     Set-Content -LiteralPath (Join-Path $prepared 'version') -Value 'new' -NoNewline
     $script:stops = 0
     $script:starts = 0
     $stop = { $script:stops++ }
     $start = { $script:starts++ }
     $healthy = { Assert-Equal 'new' (Get-Content -LiteralPath (Join-Path $current 'version') -Raw) 'new release was not started' }
-    $backup = Invoke-AgentDirectorySwap $current $prepared $stop $start $healthy
+    $backup = Invoke-AgentPayloadSwap $current $prepared @('service.exe') $stop $start $healthy
     Assert-Equal 1 $script:stops 'successful update stop count'
     Assert-Equal 1 $script:starts 'successful update start count'
     Assert-Equal 'old' (Get-Content -LiteralPath (Join-Path $backup 'version') -Raw) 'rollback copy was not preserved'
+    Assert-Equal 'stable-wrapper' (Get-Content -LiteralPath (Join-Path $current 'service.exe') -Raw) 'service wrapper was replaced'
 
     $rejected = Join-Path $root 'rejected'
     New-Item -ItemType Directory -Path $rejected | Out-Null
     Set-Content -LiteralPath (Join-Path $rejected 'version') -Value 'bad' -NoNewline
     $failed = $false
-    try { Invoke-AgentDirectorySwap $current $rejected $stop $start { throw 'simulated startup failure' } | Out-Null } catch { $failed = $true }
+    try { Invoke-AgentPayloadSwap $current $rejected @('service.exe') $stop $start { throw 'simulated startup failure' } | Out-Null } catch { $failed = $true }
     Assert-Equal $true $failed 'failed release was accepted'
     Assert-Equal 'new' (Get-Content -LiteralPath (Join-Path $current 'version') -Raw) 'failed update did not roll back'
 

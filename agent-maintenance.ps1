@@ -33,19 +33,29 @@ function Test-AgentReleaseChecksums([string]$ReleaseDirectory) {
     }
 }
 
-function Invoke-AgentDirectorySwap {
+function Invoke-AgentPayloadSwap {
     param(
         [Parameter(Mandatory = $true)][string]$CurrentDirectory,
         [Parameter(Mandatory = $true)][string]$PreparedDirectory,
+        [Parameter(Mandatory = $true)][string[]]$ProtectedNames,
         [Parameter(Mandatory = $true)][scriptblock]$StopAction,
         [Parameter(Mandatory = $true)][scriptblock]$StartAction,
         [Parameter(Mandatory = $true)][scriptblock]$HealthAction
     )
     $backup = "$CurrentDirectory.previous.$([DateTime]::UtcNow.ToString('yyyyMMddHHmmssfff'))"
+    $failed = "$CurrentDirectory.failed.$([Guid]::NewGuid().ToString('N'))"
+    New-Item -ItemType Directory -Path $backup | Out-Null
+    foreach ($entry in Get-ChildItem -LiteralPath $PreparedDirectory -Force) {
+        if ($ProtectedNames -contains $entry.Name) { throw "Release contains protected service file: $($entry.Name)" }
+    }
     & $StopAction
     try {
-        Move-Item -LiteralPath $CurrentDirectory -Destination $backup
-        Move-Item -LiteralPath $PreparedDirectory -Destination $CurrentDirectory
+        foreach ($entry in Get-ChildItem -LiteralPath $CurrentDirectory -Force) {
+            if ($ProtectedNames -notcontains $entry.Name) { Move-Item -LiteralPath $entry.FullName -Destination $backup }
+        }
+        foreach ($entry in Get-ChildItem -LiteralPath $PreparedDirectory -Force) {
+            Move-Item -LiteralPath $entry.FullName -Destination $CurrentDirectory
+        }
         & $StartAction
         & $HealthAction
         return $backup
@@ -53,11 +63,14 @@ function Invoke-AgentDirectorySwap {
     catch {
         $failure = $_
         try { & $StopAction } catch { Write-Warning 'Failed to stop the rejected agent release.' }
-        if (Test-Path -LiteralPath $CurrentDirectory) {
-            Move-Item -LiteralPath $CurrentDirectory -Destination "$CurrentDirectory.failed.$([Guid]::NewGuid().ToString('N'))"
+        New-Item -ItemType Directory -Path $failed | Out-Null
+        foreach ($entry in Get-ChildItem -LiteralPath $CurrentDirectory -Force) {
+            if ($ProtectedNames -notcontains $entry.Name) { Move-Item -LiteralPath $entry.FullName -Destination $failed }
         }
         if (Test-Path -LiteralPath $backup) {
-            Move-Item -LiteralPath $backup -Destination $CurrentDirectory
+            foreach ($entry in Get-ChildItem -LiteralPath $backup -Force) {
+                Move-Item -LiteralPath $entry.FullName -Destination $CurrentDirectory
+            }
             & $StartAction
             & $HealthAction
         }

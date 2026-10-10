@@ -20,9 +20,7 @@ $parent = Split-Path -Parent $CurrentDirectory
 $prepared = Join-Path $parent ('.OneCAgent.next.' + [Guid]::NewGuid().ToString('N'))
 Copy-Item -LiteralPath $ReleaseDirectory -Destination $prepared -Recurse
 $wrapperName = "$ServiceName.exe"
-foreach ($name in @($wrapperName, "$ServiceName.xml")) {
-    Copy-Item -LiteralPath (Join-Path $CurrentDirectory $name) -Destination (Join-Path $prepared $name)
-}
+$protectedNames = @($wrapperName, "$ServiceName.xml", 'logs')
 & $NodeExe --check (Join-Path $prepared 'agent.mjs')
 if ($LASTEXITCODE -ne 0) { throw 'New agent bundle failed the Node.js syntax check.' }
 $previousConfig = $env:AVTOPULT_AGENT_CONFIG_FILE
@@ -42,5 +40,5 @@ $health = {
     $service.Refresh()
     if ($service.Status -ne 'Running') { throw 'Updated agent did not remain running.' }
 }
-$backup = Invoke-AgentDirectorySwap $CurrentDirectory $prepared $stop $start $health
+$backup = Invoke-AgentPayloadSwap $CurrentDirectory $prepared $protectedNames $stop $start $health
 Write-Host "Agent update succeeded. Rollback copy: $backup" -ForegroundColor Green
