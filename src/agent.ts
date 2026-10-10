@@ -24,6 +24,7 @@ import { readODataOutcome } from './odata.js';
 import { KaspiSmartPosClient } from './kaspi-smart-pos.js';
 import { SmartPosSpool, type SmartPosPending } from './smart-pos-spool.js';
 import { ODataChunkSpool } from './odata-chunk-spool.js';
+import { inspectAgentStorage, type AgentStorageHealth } from './state-health.js';
 
 type ClaimedInvoiceDocument = OneCAgentInvoiceDocumentClaimResponse['documents'][number];
 type ClaimedInboundEvent = OneCAgentInboundClaimResponse['events'][number];
@@ -31,6 +32,8 @@ type OneCWriteCommand = Exclude<
   OneCAgentCommand,
   { kind: 'odata.collection' | 'kaspi.smart-pos.start' }
 >;
+type AgentComponentFailure =
+  'result_delivery' | 'agent_storage' | 'smart_pos' | 'one_c_events' | 'one_c_documents';
 
 export class OneCAgent {
   private readonly startedAt = new Date().toISOString();
@@ -60,8 +63,8 @@ export class OneCAgent {
   }
 
   async runOnce(): Promise<number | undefined> {
-    await this.flush();
-    const failures: Array<'smart_pos' | 'one_c_events' | 'one_c_documents'> = [];
+    const failures: AgentComponentFailure[] = [];
+    if (!(await this.flush())) failures.push('result_delivery');
     await this.runIndependent('smart_pos', failures, async () => await this.pollSmartPos());
     await this.runIndependent(
       'one_c_events',
@@ -73,7 +76,10 @@ export class OneCAgent {
       failures,
       async () => await this.relayInvoiceDocuments(),
     );
-    await this.heartbeat(failures);
+    const storage = await this.storageHealth();
+    if (storage.status === 'degraded') failures.push('agent_storage');
+    await this.heartbeat(failures, storage);
+    if (storage.status === 'degraded') return 5_000;
     const claim = await this.claim();
     if (claim.command === null)
       return this.hasPendingSmartPos ? Math.min(claim.retryAfterMs, 1_000) : claim.retryAfterMs;
@@ -83,7 +89,7 @@ export class OneCAgent {
 
   private async runIndependent(
     name: 'smart_pos' | 'one_c_events' | 'one_c_documents',
-    failures: Array<'smart_pos' | 'one_c_events' | 'one_c_documents'>,
+    failures: AgentComponentFailure[],
     action: () => Promise<void>,
   ): Promise<void> {
     try {
@@ -192,14 +198,28 @@ export class OneCAgent {
   private async executeSmartPos(
     command: Extract<OneCAgentCommand, { kind: 'kaspi.smart-pos.start' }>,
   ): Promise<void> {
+    if (this.config.smartPos === undefined) {
+      await this.saveCommandFailure(
+        command,
+        'SMART_POS_NOT_CONFIGURED',
+        'Kaspi Smart POS is not configured on this agent',
+      );
+      return;
+    }
     const pending = await this.smartPosSpool.read();
     const current = pending[command.request.externalId];
     if (
       current !== undefined &&
       (current.amountTiyn !== command.request.amountTiyn ||
         current.method !== command.request.method)
-    )
-      throw new Error('Smart POS external id conflicts with the durable request');
+    ) {
+      await this.saveCommandFailure(
+        command,
+        'SMART_POS_REQUEST_CONFLICT',
+        'Smart POS external id conflicts with the durable request',
+      );
+      return;
+    }
     const processId =
       current?.processId ??
       (await this.smartPos.startPayment(BigInt(command.request.amountTiyn))).processId;
@@ -222,40 +242,65 @@ export class OneCAgent {
     await this.flush();
   }
 
+  private async saveCommandFailure(
+    command: OneCAgentCommand,
+    code: string,
+    message: string,
+  ): Promise<void> {
+    const pending = await this.spool.read();
+    pending[command.id] = {
+      kind: command.kind,
+      leaseToken: command.leaseToken,
+      outcome: {
+        status: 'failed',
+        problem: { contractVersion: '1.0', code, message, retryable: false },
+      },
+    } as OneCAgentResult;
+    await this.spool.write(pending);
+    await this.flush();
+  }
+
   private async pollSmartPos(): Promise<void> {
     if (this.config.smartPos === undefined) {
       this.hasPendingSmartPos = false;
       return;
     }
     const pending = await this.smartPosSpool.read();
+    let incomplete = false;
     for (const [externalId, entry] of Object.entries(pending)) {
-      let terminalResult;
-      if (entry.settlement === undefined && !isSmartPosExpired(entry)) {
-        terminalResult = await this.smartPos.status(entry.processId);
-        if (terminalResult.status === 'unknown' && canActualize(entry)) {
-          const lastActualizeAt = new Date().toISOString();
-          pending[externalId] = { ...entry, lastActualizeAt };
-          await this.smartPosSpool.write(pending);
-          terminalResult = await this.smartPos.actualize(entry.processId);
+      try {
+        let terminalResult;
+        if (entry.settlement === undefined && !isSmartPosExpired(entry)) {
+          terminalResult = await this.smartPos.status(entry.processId);
+          if (terminalResult.status === 'unknown' && canActualize(entry)) {
+            const lastActualizeAt = new Date().toISOString();
+            pending[externalId] = { ...entry, lastActualizeAt };
+            await this.smartPosSpool.write(pending);
+            terminalResult = await this.smartPos.actualize(entry.processId);
+          }
         }
-      }
-      const settlement = entry.settlement ?? this.resolveSmartPosSettlement(entry, terminalResult);
-      if (settlement === undefined) continue;
-      if (entry.settlement === undefined) {
-        pending[externalId] = { ...entry, settlement };
+        const settlement =
+          entry.settlement ?? this.resolveSmartPosSettlement(entry, terminalResult);
+        if (settlement === undefined) continue;
+        if (entry.settlement === undefined) {
+          pending[externalId] = { ...entry, settlement };
+          await this.smartPosSpool.write(pending);
+        }
+        await this.reportSmartPos({
+          externalId,
+          amountTiyn: entry.amountTiyn,
+          method: entry.method,
+          processId: entry.processId,
+          settlement,
+        });
+        delete pending[externalId];
         await this.smartPosSpool.write(pending);
+      } catch {
+        incomplete = true;
       }
-      await this.reportSmartPos({
-        externalId,
-        amountTiyn: entry.amountTiyn,
-        method: entry.method,
-        processId: entry.processId,
-        settlement,
-      });
-      delete pending[externalId];
-      await this.smartPosSpool.write(pending);
     }
     this.hasPendingSmartPos = Object.keys(pending).length > 0;
+    if (incomplete) throw new Error('Smart POS batch incomplete');
   }
 
   private resolveSmartPosSettlement(
@@ -372,8 +417,15 @@ export class OneCAgent {
     if (response.status !== 200)
       throw new Error(`1C invoice document claim HTTP ${response.status}`);
     const claimed = oneCAgentInvoiceDocumentClaimResponseSchema.parse(await json(response));
-    for (const claimedDocument of claimed.documents)
-      await this.relayInvoiceDocument(claimedDocument);
+    let incomplete = false;
+    for (const claimedDocument of claimed.documents) {
+      try {
+        await this.relayInvoiceDocument(claimedDocument);
+      } catch {
+        incomplete = true;
+      }
+    }
+    if (incomplete) throw new Error('1C invoice document batch incomplete');
   }
 
   private async relayInvoiceDocument(claimedDocument: ClaimedInvoiceDocument): Promise<void> {
@@ -437,27 +489,39 @@ export class OneCAgent {
       throw new Error(`1C invoice document acknowledgement HTTP ${acknowledgement.status}`);
   }
 
-  private async flush(): Promise<void> {
+  private async flush(): Promise<boolean> {
     const pending = await this.spool.read();
     const odataChunks = await this.odataChunkSpool.read();
+    let complete = true;
     for (const [id, result] of Object.entries(pending)) {
-      if (!(await this.flushODataChunks(id, result, odataChunks[id]))) continue;
-      const response = await this.cloud(`commands/${encodeURIComponent(id)}/result`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/vnd.avtopult.onec-agent+json' },
-        body: JSON.stringify(result),
-      });
-      // Keep the durable result for re-claim/reconciliation, but do not starve other commands.
-      if (response.status === 409) continue;
-      if (!response.ok && response.status !== 204)
-        throw new Error(`result HTTP ${response.status}`);
-      delete pending[id];
-      await this.spool.write(pending);
-      if (odataChunks[id] !== undefined) {
-        delete odataChunks[id];
-        await this.odataChunkSpool.write(odataChunks);
+      try {
+        if (!(await this.flushODataChunks(id, result, odataChunks[id]))) {
+          complete = false;
+          continue;
+        }
+        const response = await this.cloud(`commands/${encodeURIComponent(id)}/result`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/vnd.avtopult.onec-agent+json' },
+          body: JSON.stringify(result),
+        });
+        // Keep the durable result for re-claim/reconciliation, but do not starve other commands.
+        if (response.status === 409) {
+          complete = false;
+          continue;
+        }
+        if (!response.ok && response.status !== 204)
+          throw new Error(`result HTTP ${response.status}`);
+        delete pending[id];
+        await this.spool.write(pending);
+        if (odataChunks[id] !== undefined) {
+          delete odataChunks[id];
+          await this.odataChunkSpool.write(odataChunks);
+        }
+      } catch {
+        complete = false;
       }
     }
+    return complete;
   }
 
   private async flushODataChunks(
@@ -491,7 +555,8 @@ export class OneCAgent {
   }
 
   private async heartbeat(
-    failures: readonly ('smart_pos' | 'one_c_events' | 'one_c_documents')[],
+    failures: readonly AgentComponentFailure[],
+    storage: AgentStorageHealth,
   ): Promise<void> {
     const pending = await this.spool.read();
     const response = await this.cloud('heartbeat', {
@@ -502,7 +567,10 @@ export class OneCAgent {
         version: '0.1.0',
         startedAt: this.startedAt,
         pendingResults: Object.keys(pending).length,
+        storage,
         components: {
+          resultDelivery: failures.includes('result_delivery') ? 'degraded' : 'ok',
+          storage: storage.status,
           smartPos:
             this.config.smartPos === undefined
               ? 'disabled'
@@ -517,6 +585,26 @@ export class OneCAgent {
     });
     if (!response.ok && response.status !== 204)
       throw new Error(`heartbeat HTTP ${response.status}`);
+  }
+
+  private async storageHealth(): Promise<AgentStorageHealth> {
+    const [results, odataTransfers, smartPosPayments] = await Promise.all([
+      this.spool.read(),
+      this.odataChunkSpool.read(),
+      this.smartPosSpool.read(),
+    ]);
+    return await inspectAgentStorage(
+      this.config.stateDir,
+      {
+        maxStateBytes: this.config.maxStateBytes,
+        minFreeBytes: this.config.minFreeBytes,
+      },
+      {
+        results: Object.keys(results).length,
+        odataTransfers: Object.keys(odataTransfers).length,
+        smartPosPayments: Object.keys(smartPosPayments).length,
+      },
+    );
   }
 
   private async cloud(path: string | URL, init: RequestInit): Promise<Response> {

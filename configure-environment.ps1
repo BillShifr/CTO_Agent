@@ -8,6 +8,8 @@ param(
     [string]$KaspiSmartPosUrl,
     [string]$KaspiSmartPosName,
     [string]$StateDirectory = 'C:\ProgramData\AvtoPult\OneCAgent',
+    [long]$MaxStateBytes = 2000000000,
+    [long]$MinFreeBytes = 1000000000,
     [switch]$AllowLocalHttp,
     [switch]$AllowWrites
 )
@@ -21,6 +23,9 @@ if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administra
 }
 if (-not $ApiUrl.StartsWith('https://', [StringComparison]::OrdinalIgnoreCase)) {
     throw 'ApiUrl must use HTTPS.'
+}
+if ($MaxStateBytes -lt 100000000 -or $MinFreeBytes -lt 100000000) {
+    throw 'State and free-space limits must be at least 100000000 bytes.'
 }
 if (-not $OneCWriteUrl.EndsWith('/hs/avtopult/v1/')) {
     throw 'OneCWriteUrl must end with /hs/avtopult/v1/.'
@@ -91,6 +96,8 @@ $values = @{
     ONE_C_ALLOW_HTTP = $(if ($AllowLocalHttp) { '1' } else { '0' })
     ONE_C_ALLOW_WRITES = $(if ($AllowWrites) { '1' } else { '0' })
     AVTOPULT_AGENT_STATE_DIR = $StateDirectory
+    AVTOPULT_AGENT_MAX_STATE_BYTES = $MaxStateBytes.ToString([Globalization.CultureInfo]::InvariantCulture)
+    AVTOPULT_AGENT_MIN_FREE_BYTES = $MinFreeBytes.ToString([Globalization.CultureInfo]::InvariantCulture)
 }
 if ($KaspiSmartPosUrl) {
     $values.KASPI_SMART_POS_URL = $KaspiSmartPosUrl

@@ -5,6 +5,7 @@ import {
   oneCAgentResultSchema,
   oneCAgentInboundAckSchema,
   oneCAgentInboundReceiptSchema,
+  oneCAgentHeartbeatSchema,
 } from './one-c-agent-contract.js';
 
 const id = 'a3f63973-d63f-4f07-8279-57300f22b409';
@@ -42,6 +43,34 @@ describe('1C agent relay contract', () => {
 
   it('canonicalizes nested object keys for JSONB-stable transfer hashes', () => {
     expect(canonicalAgentJson([{ z: 1, a: { y: 2, b: 3 } }])).toBe('[{"a":{"b":3,"y":2},"z":1}]');
+  });
+
+  it('accepts storage pressure telemetry while remaining compatible with an older agent', () => {
+    const legacy = oneCAgentHeartbeatSchema.parse({
+      agentId: 'station-1',
+      version: '0.1.0',
+      startedAt: '2026-10-10T00:00:00.000Z',
+      pendingResults: 0,
+      components: { smartPos: 'disabled', oneCEvents: 'ok', oneCDocuments: 'ok' },
+      failures: [],
+    });
+    expect(legacy.components).toMatchObject({ resultDelivery: 'ok', storage: 'ok' });
+
+    expect(() =>
+      oneCAgentHeartbeatSchema.parse({
+        ...legacy,
+        storage: {
+          status: 'degraded',
+          stateBytes: '2000000000',
+          freeBytes: '99999999',
+          maxStateBytes: '2000000000',
+          minFreeBytes: '1000000000',
+          queues: { results: 4, odataTransfers: 1, smartPosPayments: 2 },
+        },
+        components: { ...legacy.components, storage: 'degraded' },
+        failures: ['agent_storage'],
+      }),
+    ).not.toThrow();
   });
 
   it('accepts a leased invoice command and its exact typed result', () => {

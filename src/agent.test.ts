@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, truncate, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
@@ -79,8 +79,7 @@ describe('1C agent delivery', () => {
           }),
         ),
       );
-      if (mode === 'lost-response') await expect(agent.runOnce()).rejects.toThrow();
-      else await agent.runOnce();
+      await agent.runOnce();
       if (mode !== 'normal') await agent.runOnce();
 
       const local = observed.find((entry) => entry.url.endsWith('/invoices'));
@@ -143,6 +142,73 @@ describe('1C agent delivery', () => {
 });
 
 describe('Kaspi QR Smart POS delivery', () => {
+  it('returns a terminal failure instead of leasing an unconfigured command forever', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'avtopult-smart-pos-unconfigured-'));
+    directories.push(directory);
+    let claimed = false;
+    let result: unknown;
+    stubObservedFetch(async (url, init) => {
+      const standard = agentPollResponse(url);
+      if (standard !== null) return standard;
+      if (url.endsWith('/commands/claim')) {
+        if (claimed) return Response.json({ command: null, retryAfterMs: 2000 });
+        claimed = true;
+        return Response.json({ retryAfterMs: 250, command: smartPosCommand('kaspi_qr') });
+      }
+      if (url.endsWith('/result')) {
+        result = JSON.parse(String(init?.body));
+        return new Response(null, { status: 204 });
+      }
+      throw new Error(`unexpected URL ${url}`);
+    });
+
+    await agentFor(directory).runOnce();
+    expect(result).toMatchObject({
+      kind: 'kaspi.smart-pos.start',
+      outcome: {
+        status: 'failed',
+        problem: { code: 'SMART_POS_NOT_CONFIGURED', retryable: false },
+      },
+    });
+  });
+
+  it('reports an independent settled payment when an earlier callback is rejected', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'avtopult-smart-pos-isolation-'));
+    directories.push(directory);
+    const settled = (processId: string) => ({
+      processId,
+      amountTiyn: '12500',
+      method: 'kaspi_qr',
+      createdAt: '2026-10-10T00:00:00.000Z',
+      settlement: {
+        status: 'paid',
+        paidAt: '2026-10-10T00:01:00.000Z',
+        actualMethod: 'kaspi_qr',
+        transactionId: `transaction-${processId}`,
+      },
+    });
+    await writeFile(
+      join(directory, 'pending-smart-pos.json'),
+      JSON.stringify({ bad: settled('bad'), good: settled('good') }),
+    );
+    const observed = stubObservedFetch(async (url, init) => {
+      if (url.endsWith('/payments/kaspi/callback')) {
+        const payload = JSON.parse(String(init?.body)) as { processId?: string; eventId: string };
+        return new Response(null, { status: payload.eventId.includes(':bad:') ? 500 : 200 });
+      }
+      return agentPollResponse(url) ?? noCommandOrUnexpected(url);
+    });
+
+    await expect(new OneCAgent(smartPosConfig(directory)).runOnce()).resolves.toBe(1000);
+    expect(JSON.parse(await readFile(join(directory, 'pending-smart-pos.json'), 'utf8'))).toEqual({
+      bad: settled('bad'),
+    });
+    const callbacks = observed.filter((entry) => entry.url.endsWith('/payments/kaspi/callback'));
+    expect(callbacks).toHaveLength(2);
+    const heartbeat = observed.find((entry) => entry.url.endsWith('/heartbeat'));
+    expect(JSON.parse(String(heartbeat?.init?.body))).toMatchObject({ failures: ['smart_pos'] });
+  });
+
   it('persists the local process and reports a confirmed payment only after terminal success', async () => {
     const { agent, observed } = await smartPosAgent('kaspi_qr', 'payments/kaspi/callback');
     await agent.runOnce();
@@ -296,6 +362,105 @@ describe('1C invoice document relay integrity failure', () => {
     expect(JSON.parse(String(heartbeat?.init?.body))).toMatchObject({
       components: { oneCDocuments: 'degraded' },
       failures: ['one_c_documents'],
+    });
+  });
+
+  it('continues with later documents when one claimed PDF is invalid', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'avtopult-one-c-invoice-isolation-'));
+    directories.push(directory);
+    const validPdf = Buffer.from('%PDF-1.4\nvalid\n', 'utf8');
+    const observed = stubObservedFetch(async (url, init) => {
+      if (url.endsWith('/invoice-documents/claim'))
+        return Response.json({
+          documents: [
+            ...invoiceDocumentClaim('invoice-document-bad', '0'.repeat(64)).documents,
+            ...invoiceDocumentClaim(
+              'invoice-document-good',
+              createHash('sha256').update(validPdf).digest('hex'),
+            ).documents,
+          ],
+        });
+      if (url.endsWith('/invoice-documents/invoice-document-bad/content'))
+        return pdfResponse(Buffer.from('%PDF-1.4\nbad\n', 'utf8'));
+      if (url.endsWith('/invoice-documents/invoice-document-good/content'))
+        return pdfResponse(validPdf);
+      if (url.endsWith('/integrations/one-c/invoice-document')) {
+        const eventId = new Headers(init?.headers).get('x-onec-event-id');
+        return Response.json({ accepted: true, eventId });
+      }
+      if (url.endsWith('/invoice-documents/invoice-document-good/ack'))
+        return new Response(null, { status: 204 });
+      return agentPollResponse(url) ?? noCommandOrUnexpected(url);
+    });
+
+    await expect(agentFor(directory).runOnce()).resolves.toBe(2000);
+    expect(
+      observed.some((entry) => entry.url.endsWith('/invoice-documents/invoice-document-good/ack')),
+    ).toBe(true);
+    expect(
+      observed.some((entry) => entry.url.endsWith('/invoice-documents/invoice-document-bad/ack')),
+    ).toBe(false);
+  });
+});
+
+describe('durable result isolation and storage backpressure', () => {
+  it('delivers later results when an earlier result is rejected by Cloud', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'avtopult-one-c-result-isolation-'));
+    directories.push(directory);
+    const first = 'a3f63973-d63f-4f07-8279-57300f22b409';
+    const second = 'b3f63973-d63f-4f07-8279-57300f22b409';
+    const result = (externalId: string) => ({
+      kind: 'payroll.export',
+      leaseToken: 'x'.repeat(32),
+      outcome: { status: 'succeeded', response: { externalId } },
+    });
+    await writeFile(
+      join(directory, 'pending-results.json'),
+      JSON.stringify({ [first]: result('first'), [second]: result('second') }),
+    );
+    const observed = stubObservedFetch(async (url) => {
+      if (url.endsWith(`/commands/${first}/result`)) return new Response(null, { status: 500 });
+      if (url.endsWith(`/commands/${second}/result`)) return new Response(null, { status: 204 });
+      return agentPollResponse(url) ?? noCommandOrUnexpected(url);
+    });
+
+    await expect(agentFor(directory).runOnce()).resolves.toBe(2000);
+    expect(JSON.parse(await readFile(join(directory, 'pending-results.json'), 'utf8'))).toEqual({
+      [first]: result('first'),
+    });
+    const heartbeat = observed.find((entry) => entry.url.endsWith('/heartbeat'));
+    expect(JSON.parse(String(heartbeat?.init?.body))).toMatchObject({
+      components: { resultDelivery: 'degraded' },
+      failures: ['result_delivery'],
+    });
+  });
+
+  it('reports depleted state capacity and does not claim more work', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'avtopult-one-c-state-limit-'));
+    directories.push(directory);
+    const capacityFile = join(directory, 'capacity.bin');
+    await writeFile(capacityFile, '');
+    await truncate(capacityFile, 100_000_000);
+    const observed = stubObservedFetch(
+      async (url) => agentPollResponse(url) ?? noCommandOrUnexpected(url),
+    );
+    const agent = new OneCAgent(
+      readConfig(
+        validAgentEnvironment({
+          AVTOPULT_AGENT_STATE_DIR: directory,
+          AVTOPULT_AGENT_MAX_STATE_BYTES: '100000000',
+          AVTOPULT_AGENT_MIN_FREE_BYTES: '100000000',
+        }),
+      ),
+    );
+
+    await expect(agent.runOnce()).resolves.toBe(5_000);
+    expect(observed.some((entry) => entry.url.endsWith('/commands/claim'))).toBe(false);
+    const heartbeat = observed.find((entry) => entry.url.endsWith('/heartbeat'));
+    expect(JSON.parse(String(heartbeat?.init?.body))).toMatchObject({
+      storage: { status: 'degraded', stateBytes: '100000000' },
+      components: { storage: 'degraded' },
+      failures: ['agent_storage'],
     });
   });
 });
@@ -681,6 +846,12 @@ function invoiceDocumentClaim(eventId: string, documentSha256: string) {
       },
     ],
   };
+}
+
+function pdfResponse(content: Buffer): Response {
+  return new Response(new Uint8Array(content), {
+    headers: { 'cache-control': 'private, no-store', 'content-type': 'application/pdf' },
+  });
 }
 
 async function relayOrderVersion(version: number | undefined) {

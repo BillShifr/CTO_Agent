@@ -31,6 +31,14 @@ describe('agent configuration', () => {
     expect(readConfig({ ...valid, ONE_C_ALLOW_WRITES: '1' }).allowWrites).toBe(true);
   });
 
+  it('uses bounded storage defaults and rejects unsafe thresholds', () => {
+    expect(readConfig(valid)).toMatchObject({
+      maxStateBytes: 2_000_000_000n,
+      minFreeBytes: 1_000_000_000n,
+    });
+    expect(() => readConfig({ ...valid, AVTOPULT_AGENT_MAX_STATE_BYTES: '99999999' })).toThrow();
+  });
+
   it('builds the inbound 1C callback route from the Cloud API base', () => {
     expect(readConfig(valid).callbackUrl.href).toBe(
       'https://cloud.example/api/v1/integrations/one-c/callback',
