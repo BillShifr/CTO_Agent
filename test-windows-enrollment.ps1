@@ -2,20 +2,21 @@ $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'agent-maintenance.ps1')
 
 $script:requestBody = $null
+$script:cacheableResponse = $false
 function global:Read-Host {
     param([string]$Prompt, [switch]$AsSecureString)
     if (-not $AsSecureString) { throw 'Enrollment code must be requested as a SecureString.' }
     return ConvertTo-SecureString ('e' * 32) -AsPlainText -Force
 }
 function global:Invoke-WebRequest {
-    param($UseBasicParsing, $Method, $Uri, $ContentType, $Headers, $Body)
+    param([switch]$UseBasicParsing, $Method, $Uri, $ContentType, $Headers, $Body)
     if ($Method -ne 'Post') { throw 'Enrollment must use POST.' }
     if ($Uri.AbsoluteUri -ne 'https://api.example.kz/api/v1/integrations/one-c/agent/v1/enroll') {
         throw "Unexpected enrollment URI: $Uri"
     }
     $script:requestBody = $Body | ConvertFrom-Json
     return @{
-        Headers = @{ 'Cache-Control' = 'private, no-store' }
+        Headers = $(if ($script:cacheableResponse) { @{} } else { @{ 'Cache-Control' = 'private, no-store' } })
         Content = (@{ agentId = 'issued-agent'; agentSecret = ('s' * 48) } | ConvertTo-Json -Compress)
     }
 }
@@ -27,12 +28,7 @@ if ($credential.agentId -ne 'issued-agent' -or $credential.agentSecret -ne ('s' 
 if ($script:requestBody.enrollmentCode -ne ('e' * 32)) { throw 'Enrollment code was not sent.' }
 if ([string]::IsNullOrWhiteSpace($script:requestBody.agentName)) { throw 'Agent machine name was not sent.' }
 
-function global:Invoke-WebRequest {
-    return @{
-        Headers = @{}
-        Content = (@{ agentId = 'issued-agent'; agentSecret = ('s' * 48) } | ConvertTo-Json -Compress)
-    }
-}
+$script:cacheableResponse = $true
 $refusedCacheableResponse = $false
 try { Request-AgentEnrollmentCredential 'https://api.example.kz/api/v1/' | Out-Null }
 catch { $refusedCacheableResponse = $true }
