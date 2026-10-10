@@ -269,38 +269,49 @@ export class OneCAgent {
     let incomplete = false;
     for (const [externalId, entry] of Object.entries(pending)) {
       try {
-        let terminalResult;
-        if (entry.settlement === undefined && !isSmartPosExpired(entry)) {
-          terminalResult = await this.smartPos.status(entry.processId);
-          if (terminalResult.status === 'unknown' && canActualize(entry)) {
-            const lastActualizeAt = new Date().toISOString();
-            pending[externalId] = { ...entry, lastActualizeAt };
-            await this.smartPosSpool.write(pending);
-            terminalResult = await this.smartPos.actualize(entry.processId);
-          }
-        }
-        const settlement =
-          entry.settlement ?? this.resolveSmartPosSettlement(entry, terminalResult);
-        if (settlement === undefined) continue;
-        if (entry.settlement === undefined) {
-          pending[externalId] = { ...entry, settlement };
-          await this.smartPosSpool.write(pending);
-        }
-        await this.reportSmartPos({
-          externalId,
-          amountTiyn: entry.amountTiyn,
-          method: entry.method,
-          processId: entry.processId,
-          settlement,
-        });
-        delete pending[externalId];
-        await this.smartPosSpool.write(pending);
+        await this.pollSmartPosEntry(pending, externalId, entry);
       } catch {
         incomplete = true;
       }
     }
     this.hasPendingSmartPos = Object.keys(pending).length > 0;
     if (incomplete) throw new Error('Smart POS batch incomplete');
+  }
+
+  private async pollSmartPosEntry(
+    pending: SmartPosPending,
+    externalId: string,
+    entry: SmartPosPending[string],
+  ): Promise<void> {
+    const terminalResult = await this.readSmartPosResult(pending, externalId, entry);
+    const settlement = entry.settlement ?? this.resolveSmartPosSettlement(entry, terminalResult);
+    if (settlement === undefined) return;
+    if (entry.settlement === undefined) {
+      pending[externalId] = { ...entry, settlement };
+      await this.smartPosSpool.write(pending);
+    }
+    await this.reportSmartPos({
+      externalId,
+      amountTiyn: entry.amountTiyn,
+      method: entry.method,
+      processId: entry.processId,
+      settlement,
+    });
+    delete pending[externalId];
+    await this.smartPosSpool.write(pending);
+  }
+
+  private async readSmartPosResult(
+    pending: SmartPosPending,
+    externalId: string,
+    entry: SmartPosPending[string],
+  ): Promise<Awaited<ReturnType<KaspiSmartPosClient['status']>> | undefined> {
+    if (entry.settlement !== undefined || isSmartPosExpired(entry)) return undefined;
+    const result = await this.smartPos.status(entry.processId);
+    if (result.status !== 'unknown' || !canActualize(entry)) return result;
+    pending[externalId] = { ...entry, lastActualizeAt: new Date().toISOString() };
+    await this.smartPosSpool.write(pending);
+    return await this.smartPos.actualize(entry.processId);
   }
 
   private resolveSmartPosSettlement(

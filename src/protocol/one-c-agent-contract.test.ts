@@ -44,7 +44,9 @@ describe('1C agent relay contract', () => {
   it('canonicalizes nested object keys for JSONB-stable transfer hashes', () => {
     expect(canonicalAgentJson([{ z: 1, a: { y: 2, b: 3 } }])).toBe('[{"a":{"b":3,"y":2},"z":1}]');
   });
+});
 
+describe('1C agent heartbeat contract', () => {
   it('accepts storage pressure telemetry while remaining compatible with an older agent', () => {
     const legacy = oneCAgentHeartbeatSchema.parse({
       agentId: 'station-1',
@@ -72,7 +74,9 @@ describe('1C agent relay contract', () => {
       }),
     ).not.toThrow();
   });
+});
 
+describe('1C agent command contract', () => {
   it('accepts a leased invoice command and its exact typed result', () => {
     const command = oneCAgentClaimResponseSchema.parse({
       retryAfterMs: 250,
