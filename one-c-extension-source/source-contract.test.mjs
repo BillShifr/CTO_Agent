@@ -30,6 +30,166 @@ const httpSource = await readFile(
   'utf8',
 );
 
+test('installation preflight verifies every module, service, register and required field', async () => {
+  const source = await readCommonModule('AvtoPultСамопроверка');
+  assert.match(source, /Функция ПроверитьУстановку\(\) Экспорт/);
+  for (const moduleName of [
+    'AvtoPultИнтеграция',
+    'AvtoPultАдаптерКА2',
+    'AvtoPultДиагностикаКА2',
+    'AvtoPultЗаказы',
+    'AvtoPultИзмененияЗаказов',
+    'AvtoPultКонтракт',
+    'AvtoPultНативнаяПриемка',
+    'AvtoPultПроведение',
+    'AvtoPultРасчеты',
+    'AvtoPultСамопроверка',
+    'AvtoPultСчета',
+  ]) {
+    assert.match(source, new RegExp(moduleName));
+  }
+  assert.match(source, /Метаданные\.HTTPСервисы\.Найти\("AvtoPult"\)/);
+  for (const registerName of [
+    'AvtoPultИдемпотентность',
+    'AvtoPultИсходящиеСобытия',
+    'AvtoPultЗаказы',
+    'AvtoPultСтрокиЗаказов',
+    'AvtoPultКлиенты',
+    'AvtoPultАвтомобили',
+    'AvtoPultПрофилиСтанций',
+    'AvtoPultЗапросыСчетов',
+    'AvtoPultГоловыИзмененийЗаказов',
+    'AvtoPultИзмененияЗаказов',
+    'AvtoPultСостоянияРасчетов',
+    'AvtoPultИзмененияРасчетов',
+  ]) {
+    assert.match(source, new RegExp(`ПроверитьРегистр\\("${registerName}"`));
+  }
+  assert.match(source, /ОбъектМетаданных\.Измерения\.Найти\(ИмяПоля\)/);
+  assert.match(source, /ОбъектМетаданных\.Ресурсы\.Найти\(ИмяПоля\)/);
+  assert.match(source, /ОбъектМетаданных\.Реквизиты\.Найти\(ИмяПоля\)/);
+  assert.doesNotMatch(
+    source.slice(0, source.indexOf('Функция ПроверитьКонтракт')),
+    /СоздатьДокумент|Записать\(|НачатьТранзакцию|ЗафиксироватьТранзакцию/,
+  );
+});
+
+test('native posting is fail-closed and verifies persisted movements before success', async () => {
+  const source = await readCommonModule('AvtoPultПроведение');
+  const posting = source.slice(
+    source.indexOf('Функция ПровестиИПроверить('),
+    source.indexOf('КонецФункции'),
+  );
+  assert.match(posting, /ПроверитьТранзакцию\(\)/);
+  assert.match(posting, /ОбластьПоддерживаемогоДокумента\(Ссылка\)/);
+  assert.match(posting, /POSTING_MOVEMENT_PROFILE_REQUIRED/);
+  assert.match(posting, /Документ\.Записать\(РежимЗаписиДокумента\.Проведение\)/);
+  assert.match(posting, /POSTING_NOT_CONFIRMED/);
+  assert.match(posting, /Метаданные\.РегистрыНакопления\.Найти\(ИмяРегистра\)/);
+  assert.match(posting, /ПроверитьДвижение\(Ссылка, ОбъектМетаданных\.Имя\)/);
+  assert.ok(posting.indexOf('ПроверитьДвижение(') < posting.indexOf('Возврат Новый Структура'));
+  assert.doesNotMatch(posting, /НачатьТранзакцию|ЗафиксироватьТранзакцию|ОтменитьТранзакцию/);
+  assert.match(source, /ГДЕ Движения\.Регистратор = &Регистратор/);
+  assert.match(source, /POSTING_MOVEMENT_NOT_FOUND/);
+  assert.doesNotMatch(source, /Метаданны\(\)\.ПолноеИмя/);
+  assert.match(source, /Блокировка\.Добавить\(Область\)/);
+  const adapter = await readCommonModule('AvtoPultАдаптерКА2');
+  assert.match(adapter, /Функция ПровестиДокумент\(Ссылка, ИменаРегистров\) Экспорт/);
+  assert.match(adapter, /AvtoPultПроведение\.ПровестиИПроверить\(Ссылка, ИменаРегистров\)/);
+  for (const documentName of [
+    'ЗаказКлиента',
+    'СчетНаОплатуКлиенту',
+    'ПриходныйКассовыйОрдер',
+    'ПоступлениеБезналичныхДенежныхСредств',
+    'ОперацияПоПлатежнойКарте',
+    'РасходныйКассовыйОрдер',
+    'СписаниеБезналичныхДенежныхСредств',
+  ]) {
+    assert.match(source, new RegExp(`ДокументСсылка\\.${documentName}`));
+  }
+});
+
+test('movement discovery is read-only, complete and fail-closed on unreadable registers', async () => {
+  const source = await readCommonModule('AvtoPultДиагностикаКА2');
+  assert.match(source, /Функция НайтиРегистрыДвижений\(Ссылка\) Экспорт/);
+  assert.match(source, /Метаданные\.РегистрыНакопления/);
+  assert.match(source, /СтандартныеРеквизиты\.Найти\("Регистратор"\)/);
+  assert.match(source, /ГДЕ Движения\.Регистратор = &Регистратор/);
+  assert.match(source, /MOVEMENT_REGISTER_READ_FAILED/);
+  assert.match(source, /Ошибки\.Количество\(\) = 0/);
+  assert.match(source, /Функция СформироватьПрофильДвижений\(Ссылка\) Экспорт/);
+  assert.match(source, /MOVEMENT_PROFILE_SCAN_FAILED/);
+  assert.match(source, /MOVEMENT_PROFILE_EMPTY/);
+  assert.match(source, /Таблица\.Сортировать\("Имя Возр"\)/);
+  assert.match(source, /AvtoPultИнтеграция\.SHA256\(JSON\)/);
+  assert.match(source, /"Document_ЗаказКлиента"/);
+  assert.doesNotMatch(
+    source,
+    /НачатьТранзакцию|ЗафиксироватьТранзакцию|ОтменитьТранзакцию|\.Записать\(/,
+  );
+  for (const documentName of [
+    'ЗаказКлиента',
+    'СчетНаОплатуКлиенту',
+    'ПриходныйКассовыйОрдер',
+    'ПоступлениеБезналичныхДенежныхСредств',
+    'ОперацияПоПлатежнойКарте',
+    'РасходныйКассовыйОрдер',
+    'СписаниеБезналичныхДенежныхСредств',
+  ]) {
+    assert.match(source, new RegExp(`ДокументСсылка\\.${documentName}`));
+  }
+});
+
+test('native rollback acceptance never commits and verifies clean state after both paths', async () => {
+  const source = await readCommonModule('AvtoPultНативнаяПриемка');
+  assert.match(source, /Функция ПроверитьОткатПроведения\(Ссылка, ИменаРегистров\) Экспорт/);
+  assert.match(source, /ACCEPTANCE_OUTER_TRANSACTION_FORBIDDEN/);
+  assert.equal((source.match(/НачатьТранзакцию\(\)/g) ?? []).length, 2);
+  assert.equal((source.match(/AvtoPultПроведение\.ПровестиИПроверить\(/g) ?? []).length, 2);
+  assert.doesNotMatch(source, /ЗафиксироватьТранзакцию\(\)/);
+  assert.match(source, /__AvtoPultMissingRegisterAfterPosting__/);
+  assert.match(source, /AvtoPultДиагностикаКА2\.НайтиРегистрыДвижений\(Ссылка\)/);
+  assert.match(source, /Диагностика\.Регистры\.Количество\(\) <> 0/);
+  assert.match(source, /ACCEPTANCE_ROLLBACK_LEFT_MOVEMENTS/);
+  assert.match(source, /Если ТранзакцияАктивна\(\) Тогда[\s\S]*ОтменитьТранзакцию\(\)/);
+});
+
+test('Windows build pipeline validates, checks and exports the extension fail-closed', async () => {
+  const source = await readFile(new URL('./tools/Build-Extension.ps1', import.meta.url), 'utf8');
+  for (const operation of [
+    '/LoadConfigFromFiles',
+    '/CheckModules',
+    '/CheckConfig',
+    '/CheckCanApplyConfigurationExtensions',
+    '/DumpCfg',
+  ]) {
+    assert.match(source, new RegExp(operation));
+  }
+  assert.match(source, /extension-project-contract\.mjs/);
+  assert.match(source, /Expected 1C platform/);
+  assert.match(source, /Get-FileHash \$output -Algorithm SHA256/);
+  assert.match(source, /AVTOPULT_1C_USER/);
+  assert.match(source, /AVTOPULT_1C_PASSWORD/);
+  assert.match(source, /I-CONFIRM-NON-PRODUCTION-BUILD-INFOBASE/);
+  assert.doesNotMatch(source, /CRM:|CheckOnly-|XhHXyq/);
+});
+
+test('test installation verifies CFE integrity and cannot target production by accident', async () => {
+  const source = await readFile(
+    new URL('./tools/Install-TestExtension.ps1', import.meta.url),
+    'utf8',
+  );
+  assert.match(source, /I-CONFIRM-TEST-INFOBASE/);
+  assert.match(source, /Expected 1C platform/);
+  assert.match(source, /CFE checksum mismatch/);
+  assert.match(source, /\/LoadCfg/);
+  assert.match(source, /\/UpdateDBCfg/);
+  assert.match(source, /\/CheckCanApplyConfigurationExtensions/);
+  assert.match(source, /\/CheckModules/);
+  assert.match(source, /\/CheckConfig/);
+  assert.doesNotMatch(source, /CRM:|CheckOnly-|XhHXyq/);
+});
+
 test('local outbox exposes every endpoint consumed by the Windows agent', () => {
   for (const handler of [
     'EventsClaimPOST',
@@ -314,10 +474,71 @@ test('native order subscription captures immutable revisions without guessing cl
   assert.match(source, /Запись\.PayloadJSON = СнимокJSON/);
   assert.match(source, /Запись\.Состояние = "pending"/);
   assert.ok(source.indexOf('Запись.Записать()') < source.indexOf('Голова.Записать()'));
-  assert.doesNotMatch(
-    source,
-    /ЗафиксироватьТранзакцию\(|НачатьТранзакцию\(|HTTPСоединение|ПоставитьСобытиеВОчердь/,
+  const capture = source.slice(0, source.indexOf('КонецПроцедуры'));
+  assert.doesNotMatch(capture, /ЗафиксироватьТранзакцию\(|НачатьТранзакцию\(|HTTPСоединение/);
+  assert.doesNotMatch(capture, /ПоставитьСобытиеВОчердь|ОбновитьОчередь/);
+});
+
+test('reverse revisions are serialized, suppress cloud echo and advance baseline only on ACK', async () => {
+  const reverse = await readCommonModule('AvtoPultИзмененияЗаказов');
+  const integration = await readCommonModule('AvtoPultIntegration');
+  assert.match(reverse, /Процедура ОбновитьОчередь\(WorkOrderId\) Экспорт/);
+  assert.match(reverse, /Процедура ПоставитьОжидающиеВОчердь\(\) Экспорт/);
+  assert.match(reverse, /Origin = "cloud"[\s\S]*"suppressed"/);
+  assert.match(reverse, /Состояние = "queued"[\s\S]*Возврат/);
+  assert.match(reverse, /ПоставитьСобытиеВОчердь\(Ревизия\.RevisionId, Событие\)/);
+  assert.match(reverse, /"workorder\.changed"/);
+  assert.match(reverse, /quantityThousandths,priceTiyn,normHoursHundredths/);
+  assert.match(reverse, /КаноническоеЦелое\(КоличествоТысячных\)/);
+  assert.match(reverse, /КаноническоеЦелое\(ЦенаТиын\)/);
+  assert.match(reverse, /REVISION_ITEM_IDENTITY_CONFLICT/);
+  assert.match(reverse, /Процедура ПодтвердитьДоставку\(EventId, ВерсияОблака\) Экспорт/);
+  assert.match(reverse, /Связь\.Версия = ВерсияОблака/);
+  assert.match(reverse, /ИзменитьСостояниеРевизии\([^\n]+"delivered"\)/);
+  assert.match(
+    integration,
+    /AvtoPultИзмененияЗаказов\.ПодтвердитьДоставку\(EventId, ВерсияОблака\)/,
   );
+  const pump = integration.slice(
+    integration.indexOf('Функция ПодготовитьОбратныеИзменения('),
+    integration.indexOf(
+      'КонецФункции',
+      integration.indexOf('Функция ПодготовитьОбратныеИзменения('),
+    ),
+  );
+  assert.ok(
+    pump.indexOf('ЗаблокироватьИсходящиеОбъекты()') < pump.indexOf('ПоставитьОжидающиеВОчердь()'),
+  );
+});
+
+test('native settlements use allocation generations and compensate unpost or changed amounts', async () => {
+  const settlements = await readCommonModule('AvtoPultРасчеты');
+  const integration = await readCommonModule('AvtoPultIntegration');
+  assert.match(settlements, /Процедура ПриЗаписиРасчетногоДокумента\(Источник, Отказ\) Экспорт/);
+  for (const document of [
+    'ПриходныйКассовыйОрдер',
+    'ПоступлениеБезналичныхДенежныхСредств',
+    'ОперацияПоПлатежнойКарте',
+    'РасходныйКассовыйОрдер',
+    'СписаниеБезналичныхДенежныхСредств',
+  ]) {
+    assert.match(settlements, new RegExp(`ДокументОбъект\\.${document}`));
+  }
+  assert.match(settlements, /Источник\.Проведен И Не Источник\.ПометкаУдаления/);
+  assert.match(
+    settlements,
+    /ОперацияСовпадает\(Источник\.ХозяйственнаяОперация, Профиль\.Operation\)/,
+  );
+  assert.match(settlements, /Тип\("ДокументСсылка\.ЗаказКлиента"\)/);
+  assert.match(settlements, /Изменилось = Состояние\.Active/);
+  assert.match(settlements, /ЗаписатьСобытие\(InverseEvent/);
+  assert.match(settlements, /Revision = Состояние\.Revision \+ 1/);
+  assert.match(settlements, /paymentExternalId/);
+  assert.match(settlements, /refundExternalId/);
+  assert.match(settlements, /AmountTiyn = Тиыны\(Строка\.Сумма\)/);
+  assert.match(settlements, /ПоставитьСобытиеВОчердь\(Строка\.EventId, Payload\)/);
+  assert.match(integration, /AvtoPultРасчеты\.ПоставитьОжидающиеВОчердь\(\)/);
+  assert.match(integration, /AvtoPultРасчеты\.ПодтвердитьДоставку\(EventId\)/);
 });
 
 test('cloud writes scope their origin marker and native capture records command version', async () => {

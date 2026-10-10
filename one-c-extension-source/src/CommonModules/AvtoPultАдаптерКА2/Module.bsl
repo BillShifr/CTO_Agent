@@ -12,6 +12,12 @@
 	Возврат AvtoPultСчета.Создать(Payload);
 КонецФункции
 
+// Internal entry point. A verified configuration profile supplies the expected registers.
+Функция ПровестиДокумент(Ссылка, ИменаРегистров) Экспорт
+	ПроверитьТранзакцию();
+	Возврат AvtoPultПроведение.ПровестиИПроверить(Ссылка, ИменаРегистров);
+КонецФункции
+
 Функция ПрименитьНачисления(Payload) Экспорт
 	ПроверитьТранзакцию();
 	// Payroll is deliberately unsupported until its native document mapping is verified.
