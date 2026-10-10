@@ -117,6 +117,8 @@ Copy-Item $WinSWExe $wrapper -Force
 Set-AgentDirectoryAcl $AgentDirectory
 
 try {
+    $heartbeatReceipt = Join-Path $stateDirectory 'heartbeat-receipt.json'
+    $serviceStartedAt = [DateTime]::UtcNow
     & $wrapper install
     if ($LASTEXITCODE -ne 0) { throw 'Failed to install the agent service.' }
     & $wrapper start
@@ -128,6 +130,24 @@ try {
     $installed.Refresh()
     if ($installed.Status -ne 'Running') {
         throw "Agent service status is $($installed.Status), expected Running."
+    }
+    $deadline = [DateTime]::UtcNow.AddSeconds(45)
+    while ([DateTime]::UtcNow -lt $deadline) {
+        if (Test-Path -LiteralPath $heartbeatReceipt -PathType Leaf) {
+            $receipt = Get-Content -LiteralPath $heartbeatReceipt -Raw | ConvertFrom-Json
+            $acceptedAt = [DateTime]::Parse($receipt.acceptedAt).ToUniversalTime()
+            if ($receipt.agentId -eq $settings.AVTOPULT_AGENT_ID -and $acceptedAt -ge $serviceStartedAt) {
+                break
+            }
+        }
+        Start-Sleep -Seconds 1
+    }
+    if (-not (Test-Path -LiteralPath $heartbeatReceipt -PathType Leaf)) {
+        throw 'Agent service did not persist an accepted cloud heartbeat.'
+    }
+    $receipt = Get-Content -LiteralPath $heartbeatReceipt -Raw | ConvertFrom-Json
+    if ($receipt.agentId -ne $settings.AVTOPULT_AGENT_ID -or [DateTime]::Parse($receipt.acceptedAt).ToUniversalTime() -lt $serviceStartedAt) {
+        throw 'Agent service did not produce a fresh accepted cloud heartbeat.'
     }
 }
 catch {

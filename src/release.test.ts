@@ -81,10 +81,14 @@ describe('Windows release artifact', () => {
     expect(installer).toContain('Set-AgentDirectoryAcl $AgentDirectory');
     expect(installer).toContain('SetAccessRuleProtection($true, $false)');
     expect(installer).toContain('Start-Sleep -Seconds 5');
+    expect(installer).toContain("'heartbeat-receipt.json'");
+    expect(installer).toContain('fresh accepted cloud heartbeat');
     expect(installer).not.toContain("GetEnvironmentVariable($_, 'Machine')");
     const configurator = await readFile(resolve(workspace, 'configure-environment.ps1'), 'utf8');
     expect(configurator).toContain('SetAccessRuleProtection($true, $false)');
     expect(configurator).toContain("'agent-config.json'");
+    expect(configurator).toContain('Request-AgentEnrollmentCredential');
+    expect(configurator).toContain('UseExistingAgentCredential');
     expect(configurator).not.toContain(
       "SetEnvironmentVariable($entry.Key, $entry.Value, 'Machine')",
     );
@@ -94,6 +98,10 @@ describe('Windows release artifact', () => {
     expect(await readFile(resolve(workspace, 'rotate-secrets.ps1'), 'utf8')).toContain(
       'Invoke-AgentConfigSwap',
     );
+    const maintenance = await readFile(resolve(workspace, 'agent-maintenance.ps1'), 'utf8');
+    expect(maintenance).toContain("'integrations/one-c/agent/v1/enroll'");
+    expect(maintenance).toContain("'Cache-Control'");
+    expect(maintenance).toContain('no-store');
     const workflow = await readFile(resolve(workspace, '.github/workflows/ci.yml'), 'utf8');
     expect(workflow).toContain('path: .artifacts/');
     expect(workflow).toContain('include-hidden-files: true');

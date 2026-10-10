@@ -14,10 +14,12 @@ function Write-StubRelease([string]$Directory, [string]$Version, [bool]$StayRunn
     New-Item -ItemType Directory -Path $Directory -Force | Out-Null
     $stayRunningLiteral = if ($StayRunning) { 'true' } else { 'false' }
     $escapedMarker = $marker.Replace('\', '\\')
+    $escapedReceipt = (Join-Path $state 'heartbeat-receipt.json').Replace('\', '\\')
     $source = @"
 import { writeFileSync } from 'node:fs';
 if (process.argv.includes('--diagnose')) process.exit(0);
 writeFileSync('$escapedMarker', '$Version', 'utf8');
+writeFileSync('$escapedReceipt', JSON.stringify({ agentId: 'windows-acceptance', acceptedAt: new Date().toISOString() }), 'utf8');
 if (!$stayRunningLiteral) process.exit(23);
 setInterval(() => {}, 1000);
 "@

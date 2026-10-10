@@ -9,6 +9,49 @@ function Assert-AgentAdministrator {
     }
 }
 
+function Read-AgentPlainSecret([string]$Prompt, [int]$Minimum) {
+    $secure = Read-Host $Prompt -AsSecureString
+    $pointer = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
+    try {
+        $value = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($pointer)
+        if ($value.Length -lt $Minimum) { throw "$Prompt is too short." }
+        return $value
+    }
+    finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($pointer) }
+}
+
+function Request-AgentEnrollmentCredential([string]$ApiUrl) {
+    if (-not $ApiUrl.StartsWith('https://', [StringComparison]::OrdinalIgnoreCase)) {
+        throw 'ApiUrl must use HTTPS.'
+    }
+    $enrollmentCode = Read-AgentPlainSecret 'One-time AvtoPult enrollment code' 16
+    $body = $null
+    $response = $null
+    try {
+        $base = [Uri]::new($ApiUrl.TrimEnd('/') + '/')
+        $uri = [Uri]::new($base, 'integrations/one-c/agent/v1/enroll')
+        $body = @{
+            enrollmentCode = $enrollmentCode
+            agentName = [Environment]::MachineName
+        } | ConvertTo-Json -Compress
+        $response = Invoke-WebRequest -UseBasicParsing -Method Post -Uri $uri -ContentType 'application/json; charset=utf-8' -Headers @{ Accept = 'application/json' } -Body $body
+        if ($response.Headers['Cache-Control'] -notmatch '(^|,)\s*no-store\s*(,|$)') {
+            throw 'Enrollment response is missing Cache-Control: no-store.'
+        }
+        $credential = $response.Content | ConvertFrom-Json
+        if ([string]::IsNullOrWhiteSpace($credential.agentId) -or [string]::IsNullOrWhiteSpace($credential.agentSecret)) {
+            throw 'Enrollment response does not contain an agent credential.'
+        }
+        if ($credential.agentSecret.Length -lt 32) { throw 'Enrolled agent secret is too short.' }
+        return $credential
+    }
+    finally {
+        $enrollmentCode = $null
+        $body = $null
+        $response = $null
+    }
+}
+
 function Test-AgentReleaseChecksums([string]$ReleaseDirectory) {
     $root = (Resolve-Path -LiteralPath $ReleaseDirectory).Path
     $checksumPath = Join-Path $root 'SHA256SUMS'

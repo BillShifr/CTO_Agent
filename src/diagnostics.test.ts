@@ -27,12 +27,16 @@ describe('read-only diagnostics', () => {
     const fetch = vi.fn(async (input: URL | RequestInfo, init?: RequestInit) => {
       void init;
       const url = input.toString();
+      if (url.endsWith('/diagnostics')) return Response.json({ ok: true });
       return new Response('', { status: url.includes('$metadata') ? 401 : 200 });
     });
     vi.stubGlobal('fetch', fetch);
     const checks = await runAgentDiagnostics(config);
     expect(fetch).toHaveBeenCalledTimes(4);
     for (const [, init] of fetch.mock.calls) expect(init?.method).toBe('GET');
+    const cloudHeaders = new Headers(fetch.mock.calls[0]?.[1]?.headers);
+    expect(cloudHeaders.get('x-onec-agent-id')).toBe('test-agent');
+    expect(cloudHeaders.get('x-onec-secret')).toBe('a'.repeat(32));
     expect(diagnosticsSucceeded(checks)).toBe(false);
     expect(checks.find(({ name }) => name === 'one_c_odata')).toEqual({
       name: 'one_c_odata',
@@ -41,6 +45,27 @@ describe('read-only diagnostics', () => {
     });
     expect(JSON.stringify(checks)).not.toContain(config.secret);
     expect(JSON.stringify(checks)).not.toContain(config.oneCPassword);
+  });
+
+  it('does not accept a generic HTML success page as cloud diagnostics', async () => {
+    const config = await testConfig();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: URL | RequestInfo) =>
+        input.toString().endsWith('/diagnostics')
+          ? new Response('<html>proxy login</html>', {
+              status: 200,
+              headers: { 'content-type': 'text/html' },
+            })
+          : new Response('', { status: 200 }),
+      ),
+    );
+    const checks = await runAgentDiagnostics(config);
+    expect(checks.find(({ name }) => name === 'cloud')).toEqual({
+      name: 'cloud',
+      status: 'failed',
+      detail: 'invalid response content type',
+    });
   });
 });
 

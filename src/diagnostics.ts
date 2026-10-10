@@ -16,11 +16,7 @@ export async function runAgentDiagnostics(
   const checks: DiagnosticCheck[] = [ok('configuration', 'configuration is valid')];
   checks.push(await storageCheck(config));
   if (!options.network) return checks;
-  checks.push(
-    await httpCheck(config, 'cloud', new URL('diagnostics', config.cloudUrl), {
-      headers: { 'x-onec-secret': config.secret, accept: 'application/json' },
-    }),
-  );
+  checks.push(await cloudCheck(config));
   checks.push(
     await httpCheck(config, 'one_c_write', new URL('diagnostics', config.oneCUrl), {
       headers: {
@@ -44,6 +40,28 @@ export async function runAgentDiagnostics(
       : await smartPosCheck(config),
   );
   return checks;
+}
+
+async function cloudCheck(config: AgentConfig): Promise<DiagnosticCheck> {
+  try {
+    const response = await boundedFetch(config, new URL('diagnostics', config.cloudUrl), {
+      method: 'GET',
+      headers: {
+        'x-onec-agent-id': config.agentId,
+        'x-onec-secret': config.secret,
+        accept: 'application/json',
+      },
+    });
+    if (!response.ok) return failed('cloud', `HTTP ${String(response.status)}`);
+    if (!response.headers.get('content-type')?.toLowerCase().startsWith('application/json'))
+      return failed('cloud', 'invalid response content type');
+    const body = (await response.json()) as unknown;
+    if (typeof body !== 'object' || body === null || !('ok' in body) || body.ok !== true)
+      return failed('cloud', 'invalid diagnostics response');
+    return ok('cloud', `HTTP ${String(response.status)}; agent credential accepted`);
+  } catch {
+    return failed('cloud', 'connection failed');
+  }
 }
 
 async function smartPosCheck(config: AgentConfig): Promise<DiagnosticCheck> {

@@ -32,6 +32,10 @@ jobs:
         if: runner.os == 'Windows'
         shell: powershell
         run: ./test-windows-maintenance.ps1
+      - name: Exercise one-time enrollment exchange
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: ./test-windows-enrollment.ps1
       - name: Exercise real Windows service install, update and rollback
         if: runner.os == 'Windows'
         shell: powershell

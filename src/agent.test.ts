@@ -207,6 +207,10 @@ describe('Kaspi QR Smart POS delivery', () => {
     expect(callbacks).toHaveLength(2);
     const heartbeat = observed.find((entry) => entry.url.endsWith('/heartbeat'));
     expect(JSON.parse(String(heartbeat?.init?.body))).toMatchObject({ failures: ['smart_pos'] });
+    expect(new Headers(heartbeat?.init?.headers).get('x-onec-agent-id')).toBe('station-1');
+    expect(
+      JSON.parse(await readFile(join(directory, 'heartbeat-receipt.json'), 'utf8')),
+    ).toMatchObject({ agentId: 'station-1' });
   });
 
   it('persists the local process and reports a confirmed payment only after terminal success', async () => {
@@ -318,6 +322,7 @@ describe('successful 1C invoice document relay', () => {
     );
     const headers = new Headers(upload?.init?.headers);
     expect(headers.get('x-onec-secret')).toBe('s'.repeat(32));
+    expect(headers.get('x-onec-agent-id')).toBe('station-agent');
     expect(headers.get('x-content-sha256')).toBe(sha256);
     expect(Buffer.from(upload?.init?.body as Buffer)).toEqual(pdf);
     const contentRequest = observed.find((entry) =>

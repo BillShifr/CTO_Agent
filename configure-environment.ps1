@@ -1,5 +1,5 @@
 param(
-    [Parameter(Mandatory = $true)][string]$AgentId,
+    [string]$AgentId,
     [Parameter(Mandatory = $true)][string]$ApiUrl,
     [Parameter(Mandatory = $true)][string]$OneCWriteUrl,
     [Parameter(Mandatory = $true)][string]$OneCUsername,
@@ -11,10 +11,12 @@ param(
     [long]$MaxStateBytes = 2000000000,
     [long]$MinFreeBytes = 1000000000,
     [switch]$AllowLocalHttp,
-    [switch]$AllowWrites
+    [switch]$AllowWrites,
+    [switch]$UseExistingAgentCredential
 )
 
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'agent-maintenance.ps1')
 $principal = New-Object Security.Principal.WindowsPrincipal(
     [Security.Principal.WindowsIdentity]::GetCurrent()
 )
@@ -63,7 +65,17 @@ function Read-Secret([string]$Prompt) {
     }
 }
 
-$agentSecret = Read-Secret 'AvtoPult agent secret (minimum 32 characters)'
+if ($UseExistingAgentCredential) {
+    if ([string]::IsNullOrWhiteSpace($AgentId)) { throw 'AgentId is required with UseExistingAgentCredential.' }
+    $agentSecret = Read-Secret 'Existing AvtoPult agent secret (minimum 32 characters)'
+}
+else {
+    if (-not [string]::IsNullOrWhiteSpace($AgentId)) { throw 'AgentId is issued by enrollment; omit it or use UseExistingAgentCredential.' }
+    $credential = Request-AgentEnrollmentCredential $ApiUrl
+    $AgentId = $credential.agentId
+    $agentSecret = $credential.agentSecret
+    $credential = $null
+}
 $writePassword = Read-Secret '1C write password'
 $odataPassword = Read-Secret '1C OData read password'
 $kaspiToken = if ($KaspiSmartPosUrl) { Read-Secret 'Kaspi Smart POS API token' } else { $null }
@@ -126,7 +138,14 @@ $configPath = Join-Path $StateDirectory 'agent-config.json'
 if (Test-Path -LiteralPath $configPath) {
     throw 'Configuration already exists. Back it up and remove it explicitly before rotating credentials.'
 }
-[IO.File]::WriteAllText($configPath, ($values | ConvertTo-Json), [Text.UTF8Encoding]::new($false))
+$prepared = "$configPath.next.$([Guid]::NewGuid().ToString('N'))"
+try {
+    [IO.File]::WriteAllText($prepared, ($values | ConvertTo-Json), [Text.UTF8Encoding]::new($false))
+    Move-Item -LiteralPath $prepared -Destination $configPath
+}
+finally {
+    Remove-Item -LiteralPath $prepared -Force -ErrorAction SilentlyContinue
+}
 # Migrate away from globally readable machine environment. Rotate any previously exposed secrets.
 foreach ($name in @('AVTOPULT_AGENT_SECRET', 'ONE_C_PASSWORD', 'ONE_C_ODATA_PASSWORD', 'KASPI_SMART_POS_TOKEN', 'KASPI_SMART_POS_REFRESH_TOKEN', 'KASPI_CALLBACK_SECRET')) {
     [Environment]::SetEnvironmentVariable($name, $null, 'Machine')

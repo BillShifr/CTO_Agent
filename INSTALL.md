@@ -7,9 +7,9 @@ IP, домен, входящий port-forward и Radmin VPN для production-к
 ## Обязательные поля конфигурации
 
 ```text
-AVTOPULT_AGENT_ID=station-01
+AVTOPULT_AGENT_ID=<выдаётся облаком при enrollment>
 AVTOPULT_API_URL=https://api.example.kz/api/v1/
-AVTOPULT_AGENT_SECRET=<отдельный случайный секрет минимум 32 символа>
+AVTOPULT_AGENT_SECRET=<однократно выдаётся облаком при enrollment>
 ONE_C_WRITE_URL=http://127.0.0.1/infobase/hs/avtopult/v1/
 ONE_C_USERNAME=avtopult-writer
 ONE_C_PASSWORD=<секрет записи 1С>
@@ -64,12 +64,14 @@ SHA-256 `05b82d46ad331cc16bdc00de5c6332c1ef818df8ceefcd49c726553209b3a0da` и п
 
 ## Установка Windows-службы
 
-Сначала откройте PowerShell от имени администратора и создайте файл конфигурации. Скрипт
-запрашивает три секрета интерактивно и не передаёт их в аргументах командной строки:
+Сначала владелец или администратор AvtoPult выпускает в кабинете одноразовый код подключения.
+Код короткоживущий и после первого успешного обмена повторно не принимается. Откройте PowerShell
+от имени администратора и создайте файл конфигурации. Скрипт скрыто запросит код и пароли 1С,
+обменяет код по HTTPS на отдельные `agentId` и `agentSecret`, проверит запрет кеширования ответа и
+атомарно запишет конфигурацию с ACL только для SYSTEM и Administrators:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File C:\AvtoPult\OneCAgent\configure-environment.ps1 `
-  -AgentId 'customer-production' `
   -ApiUrl 'https://api.example.kz/api/v1/' `
   -OneCWriteUrl 'http://127.0.0.1/infobase/hs/avtopult/v1/' `
   -OneCUsername 'avtopult-writer' `
@@ -77,6 +79,10 @@ powershell -ExecutionPolicy Bypass -File C:\AvtoPult\OneCAgent\configure-environ
   -OneCODataUsername 'avtopult-reader' `
   -AllowLocalHttp
 ```
+
+`-UseExistingAgentCredential -AgentId ...` оставлен только для переноса уже зарегистрированного
+агента. В этом режиме существующий секрет вводится скрыто. Для нового production-подключения
+используйте одноразовый enrollment-код.
 
 После этого установите службу:
 
@@ -93,7 +99,9 @@ powershell -ExecutionPolicy Bypass -File C:\AvtoPult\OneCAgent\install-service.p
 
 Установщик проверяет WinSW из release-пакета и наличие полей конфигурации без вывода их значений,
 ограничивает ACL каталогов состояния и исполняемого кода, устанавливает автозапуск с задержкой,
-три перезапуска и ротацию логов. При ошибке первой установки созданная служба удаляется. Повторный
+три перезапуска и ротацию логов. Установка считается успешной только после свежего heartbeat,
+который облако приняло от запущенной службы; receipt сохраняется атомарно в защищённом каталоге.
+При ошибке первой установки созданная служба удаляется. Повторный
 запуск установщика для существующей службы запрещён: обновление выполняется только через
 `update-service.ps1`, который автоматически возвращает предыдущую версию при сбое. Непереданный ответ атомарно сохраняется на диске и
 отправляется после восстановления сети до получения новой команды. Cloud lease возвращает
@@ -126,13 +134,14 @@ powershell -ExecutionPolicy Bypass -File C:\AvtoPult\OneCAgent\install-service.p
 .\update-service.ps1 -NodeExe 'C:\Program Files\nodejs\node.exe' `
   -CurrentDirectory 'C:\AvtoPult\OneCAgent' -ReleaseDirectory 'C:\Install\OneCAgent-new'
 
-# Ротация выбранных секретов; значения запрашиваются скрыто, не передаются аргументами
+# Ротация agent credential по новому одноразовому коду и локального пароля 1С
 .\rotate-secrets.ps1 -NodeExe 'C:\Program Files\nodejs\node.exe' `
   -AgentDirectory 'C:\AvtoPult\OneCAgent' -AgentSecret -OneCWritePassword
 ```
 
-Перед ротацией agent secret сначала добавьте новое значение в облаке. Скрипт проверяет новые
-доступы до замены файла и возвращает прежнюю конфигурацию, если служба не восстановилась.
+Перед ротацией agent credential выпустите новый одноразовый код в кабинете. Скрипт получает новую
+пару `agentId`/`agentSecret`, проверяет новые доступы до замены файла и возвращает прежнюю
+конфигурацию, если служба не восстановилась. Постоянный secret не копируется через буфер обмена.
 
 Удаление службы сохраняет disk spool для расследования и безопасного повторного запуска:
 
@@ -158,8 +167,9 @@ powershell -ExecutionPolicy Bypass -File C:\AvtoPult\OneCAgent\uninstall-service
 }
 ```
 
-`IntegrationConnection.secretRef` ссылается на тот же отдельный agent secret. В production
-используются разные пользователи 1С: read-only для OData и writer только для `/hs/avtopult/v1/`.
+Agent credential создаётся enrollment API и используется только для agent endpoints. Он не должен
+совпадать с callback/write secret подключения. В production используются разные пользователи 1С:
+read-only для OData и writer только для `/hs/avtopult/v1/`.
 
 ## Контроль перед включением записи
 

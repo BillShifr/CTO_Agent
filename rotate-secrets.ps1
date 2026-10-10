@@ -20,25 +20,19 @@ $AgentDirectory = (Resolve-Path -LiteralPath $AgentDirectory).Path
 $ConfigFile = (Resolve-Path -LiteralPath $ConfigFile).Path
 $config = Get-Content -LiteralPath $ConfigFile -Raw | ConvertFrom-Json
 
-function Read-PlainSecret([string]$Prompt, [int]$Minimum) {
-    $secure = Read-Host $Prompt -AsSecureString
-    $pointer = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
-    try {
-        $value = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($pointer)
-        if ($value.Length -lt $Minimum) { throw "$Prompt is too short." }
-        return $value
-    }
-    finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($pointer) }
+if ($AgentSecret) {
+    $credential = Request-AgentEnrollmentCredential $config.AVTOPULT_API_URL
+    $config.AVTOPULT_AGENT_ID = $credential.agentId
+    $config.AVTOPULT_AGENT_SECRET = $credential.agentSecret
+    $credential = $null
 }
-
-if ($AgentSecret) { $config.AVTOPULT_AGENT_SECRET = Read-PlainSecret 'New AvtoPult agent secret' 32 }
-if ($OneCWritePassword) { $config.ONE_C_PASSWORD = Read-PlainSecret 'New 1C write password' 1 }
-if ($OneCODataPassword) { $config.ONE_C_ODATA_PASSWORD = Read-PlainSecret 'New 1C OData password' 1 }
+if ($OneCWritePassword) { $config.ONE_C_PASSWORD = Read-AgentPlainSecret 'New 1C write password' 1 }
+if ($OneCODataPassword) { $config.ONE_C_ODATA_PASSWORD = Read-AgentPlainSecret 'New 1C OData password' 1 }
 if ($KaspiSecrets) {
     if (-not $config.KASPI_SMART_POS_URL) { throw 'Kaspi Smart POS is not configured.' }
-    $config.KASPI_SMART_POS_TOKEN = Read-PlainSecret 'New Kaspi access token' 16
-    $config.KASPI_SMART_POS_REFRESH_TOKEN = Read-PlainSecret 'New Kaspi refresh token' 16
-    $config.KASPI_CALLBACK_SECRET = Read-PlainSecret 'New Kaspi callback secret' 16
+    $config.KASPI_SMART_POS_TOKEN = Read-AgentPlainSecret 'New Kaspi access token' 16
+    $config.KASPI_SMART_POS_REFRESH_TOKEN = Read-AgentPlainSecret 'New Kaspi refresh token' 16
+    $config.KASPI_CALLBACK_SECRET = Read-AgentPlainSecret 'New Kaspi callback secret' 16
 }
 
 $prepared = "$ConfigFile.next.$([Guid]::NewGuid().ToString('N'))"

@@ -25,6 +25,8 @@ import { KaspiSmartPosClient } from './kaspi-smart-pos.js';
 import { SmartPosSpool, type SmartPosPending } from './smart-pos-spool.js';
 import { ODataChunkSpool } from './odata-chunk-spool.js';
 import { inspectAgentStorage, type AgentStorageHealth } from './state-health.js';
+import { writePrivateJson } from './private-json-file.js';
+import { join } from 'node:path';
 
 type ClaimedInvoiceDocument = OneCAgentInvoiceDocumentClaimResponse['documents'][number];
 type ClaimedInboundEvent = OneCAgentInboundClaimResponse['events'][number];
@@ -596,6 +598,10 @@ export class OneCAgent {
     });
     if (!response.ok && response.status !== 204)
       throw new Error(`heartbeat HTTP ${response.status}`);
+    await writePrivateJson(join(this.config.stateDir, 'heartbeat-receipt.json'), {
+      agentId: this.config.agentId,
+      acceptedAt: new Date().toISOString(),
+    });
   }
 
   private async storageHealth(): Promise<AgentStorageHealth> {
@@ -622,7 +628,12 @@ export class OneCAgent {
     const url = path instanceof URL ? path : new URL(path, this.config.cloudUrl);
     return await boundedFetch(this.config, url, {
       ...init,
-      headers: { ...init.headers, 'x-onec-secret': this.config.secret, accept: 'application/json' },
+      headers: {
+        ...init.headers,
+        'x-onec-agent-id': this.config.agentId,
+        'x-onec-secret': this.config.secret,
+        accept: 'application/json',
+      },
     });
   }
 
