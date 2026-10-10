@@ -98,7 +98,8 @@ powershell -ExecutionPolicy Bypass -File C:\AvtoPult\OneCAgent\install-service.p
 идемпотентности серверным модулем 1С; один заголовок `Idempotency-Key` этого не обеспечивает.
 При конфликте lease результат сохраняется для повторной выдачи команды/разбора и не блокирует
 остальную очередь. Каталог установки и Node.js должны быть недоступны для записи обычным
-пользователям. Установка/перезагрузка Windows пока требуют отдельного acceptance-прогона.
+пользователям. Транзакции обновления и отката проверяются в Windows CI на тестовой службе;
+фактическая установка на сервере заказчика остаётся обязательной частью финальной приёмки.
 
 По умолчанию агент перестаёт забирать новые команды, если каталог состояния достиг 2 ГБ или на
 диске осталось меньше 1 ГБ. Уже сохранённые результаты продолжают отправляться, а состояние
@@ -110,6 +111,25 @@ powershell -ExecutionPolicy Bypass -File C:\AvtoPult\OneCAgent\install-service.p
 же `eventId`. В release входят `one-c-extension-source`, `one-c-write-api.md` и инструкция
 `one-c-extension-source/MAXIM-HANDOFF.md`; специалист 1С адаптирует каркас к метаданным целевой
 конфигурации, собирает `.cfe` и выполняет матрицу приёмки.
+
+## Диагностика, обновление и ротация
+
+```powershell
+# Проверка ACL, службы, диска и авторизации без получения команд и создания операций
+.\diagnose-agent.ps1 -NodeExe 'C:\Program Files\nodejs\node.exe' `
+  -AgentDirectory 'C:\AvtoPult\OneCAgent'
+
+# Обновление из проверенного release с автоматическим возвратом старой версии при сбое
+.\update-service.ps1 -NodeExe 'C:\Program Files\nodejs\node.exe' `
+  -CurrentDirectory 'C:\AvtoPult\OneCAgent' -ReleaseDirectory 'C:\Install\OneCAgent-new'
+
+# Ротация выбранных секретов; значения запрашиваются скрыто, не передаются аргументами
+.\rotate-secrets.ps1 -NodeExe 'C:\Program Files\nodejs\node.exe' `
+  -AgentDirectory 'C:\AvtoPult\OneCAgent' -AgentSecret -OneCWritePassword
+```
+
+Перед ротацией agent secret сначала добавьте новое значение в облаке. Скрипт проверяет новые
+доступы до замены файла и возвращает прежнюю конфигурацию, если служба не восстановилась.
 
 Удаление службы сохраняет disk spool для расследования и безопасного повторного запуска:
 

@@ -30,6 +30,15 @@ const httpSource = await readFile(
   'utf8',
 );
 
+test('read-only diagnostics endpoint validates the contract without claiming work', () => {
+  assert.match(httpSource, /Функция DiagnosticsGET\(Запрос\)/);
+  assert.match(httpSource, /AvtoPultИнтеграция\.ОтветДиагностики\(Запрос\)/);
+  assert.match(moduleSource, /Функция ОтветДиагностики\(Запрос\) Экспорт/);
+  const start = moduleSource.indexOf('Функция ОтветДиагностики(');
+  const diagnostics = moduleSource.slice(start, moduleSource.indexOf('КонецФункции', start));
+  assert.doesNotMatch(diagnostics, /Записать|НачатьТранзакцию|ПолучитьИсходящие/);
+});
+
 test('installation preflight verifies every module, service, register and required field', async () => {
   const source = await readCommonModule('AvtoPultСамопроверка');
   assert.match(source, /Функция ПроверитьУстановку\(\) Экспорт/);

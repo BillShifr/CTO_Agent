@@ -28,6 +28,10 @@ jobs:
             [void][System.Management.Automation.Language.Parser]::ParseFile($_.FullName, [ref]$tokens, [ref]$errors)
             if ($errors.Count) { throw ($errors | Out-String) }
           }
+      - name: Exercise Windows update and rollback transactions
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: ./test-windows-maintenance.ps1
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: one-c-agent-${{ matrix.os }}

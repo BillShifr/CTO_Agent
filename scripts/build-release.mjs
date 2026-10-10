@@ -22,11 +22,15 @@ await build({
 });
 
 for (const name of [
+  'agent-maintenance.ps1',
   'README.md',
   'INSTALL.md',
   'configure-environment.ps1',
+  'diagnose-agent.ps1',
   'install-service.ps1',
+  'rotate-secrets.ps1',
   'uninstall-service.ps1',
+  'update-service.ps1',
 ]) {
   await cp(resolve(agentDirectory, name), resolve(releaseDirectory, name));
 }

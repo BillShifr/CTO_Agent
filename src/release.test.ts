@@ -28,6 +28,13 @@ describe('Windows release artifact', () => {
     );
     expect(entries.some((entry) => entry.endsWith('one-c-write-api.md'))).toBe(true);
     for (const name of [
+      'agent-maintenance.ps1',
+      'diagnose-agent.ps1',
+      'rotate-secrets.ps1',
+      'update-service.ps1',
+    ])
+      expect(entries.some((entry) => entry.endsWith(`  ${name}`))).toBe(true);
+    for (const name of [
       'ORDER-METADATA.md',
       'INVOICE-METADATA.md',
       'REVERSE-METADATA.md',
@@ -68,6 +75,12 @@ describe('Windows release artifact', () => {
     expect(configurator).toContain("'agent-config.json'");
     expect(configurator).not.toContain(
       "SetEnvironmentVariable($entry.Key, $entry.Value, 'Machine')",
+    );
+    expect(await readFile(resolve(workspace, 'update-service.ps1'), 'utf8')).toContain(
+      'Invoke-AgentDirectorySwap',
+    );
+    expect(await readFile(resolve(workspace, 'rotate-secrets.ps1'), 'utf8')).toContain(
+      'Invoke-AgentConfigSwap',
     );
   });
 });
