@@ -78,7 +78,8 @@ describe('Windows release artifact', () => {
     expect(installer).not.toMatch(/sc\.exe\s+create/i);
     expect(installer).toContain('AVTOPULT_AGENT_CONFIG_FILE');
     expect(installer).toContain('Use update-service.ps1 for a transactional update.');
-    expect(installer).toContain('Failed to restrict the agent installation directory ACL.');
+    expect(installer).toContain('Set-AgentDirectoryAcl $AgentDirectory');
+    expect(installer).toContain('SetAccessRuleProtection($true, $false)');
     expect(installer).toContain('Start-Sleep -Seconds 5');
     expect(installer).not.toContain("GetEnvironmentVariable($_, 'Machine')");
     const configurator = await readFile(resolve(workspace, 'configure-environment.ps1'), 'utf8');

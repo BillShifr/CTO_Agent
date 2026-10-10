@@ -28,6 +28,23 @@ if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administra
     throw 'Run this installer from an elevated PowerShell session.'
 }
 
+function Set-AgentDirectoryAcl([string]$Path) {
+    $acl = New-Object Security.AccessControl.DirectorySecurity
+    $acl.SetAccessRuleProtection($true, $false)
+    foreach ($sid in @('S-1-5-18', 'S-1-5-32-544')) {
+        $identity = New-Object Security.Principal.SecurityIdentifier($sid)
+        $rule = New-Object Security.AccessControl.FileSystemAccessRule(
+            $identity,
+            'FullControl',
+            'ContainerInherit,ObjectInherit',
+            'None',
+            'Allow'
+        )
+        $acl.AddAccessRule($rule)
+    }
+    Set-Acl -LiteralPath $Path -AclObject $acl
+}
+
 $NodeExe = (Resolve-Path $NodeExe).Path
 $AgentDirectory = (Resolve-Path $AgentDirectory).Path
 $agentDirectoryItem = Get-Item -LiteralPath $AgentDirectory
@@ -66,10 +83,7 @@ if ($missingEnvironment.Count -gt 0) {
 
 $stateDirectory = $settings.AVTOPULT_AGENT_STATE_DIR
 New-Item -ItemType Directory -Path $stateDirectory -Force | Out-Null
-& icacls.exe $stateDirectory /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' | Out-Null
-if ($LASTEXITCODE -ne 0) {
-    throw 'Failed to restrict the agent state directory ACL.'
-}
+Set-AgentDirectoryAcl $stateDirectory
 
 $wrapper = Join-Path $AgentDirectory "$serviceName.exe"
 $configuration = Join-Path $AgentDirectory "$serviceName.xml"
@@ -100,8 +114,7 @@ Copy-Item $WinSWExe $wrapper -Force
 [IO.File]::WriteAllText($configuration, $xml, [Text.UTF8Encoding]::new($false))
 
 # The service runs as SYSTEM, so writable code would be a local privilege-escalation path.
-& icacls.exe $AgentDirectory /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' | Out-Null
-if ($LASTEXITCODE -ne 0) { throw 'Failed to restrict the agent installation directory ACL.' }
+Set-AgentDirectoryAcl $AgentDirectory
 
 try {
     & $wrapper install
