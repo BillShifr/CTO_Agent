@@ -1,7 +1,7 @@
 param(
     [Parameter(Mandatory = $true)][string]$NodeExe,
     [Parameter(Mandatory = $true)][string]$AgentDirectory,
-    [Parameter(Mandatory = $true)][string]$WinSWExe,
+    [string]$WinSWExe,
     [string]$ConfigFile = 'C:\ProgramData\AvtoPult\OneCAgent\agent-config.json',
     [string]$WinSWExpectedSha256 = '05b82d46ad331cc16bdc00de5c6332c1ef818df8ceefcd49c726553209b3a0da'
 )
@@ -28,8 +28,32 @@ if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administra
     throw 'Run this installer from an elevated PowerShell session.'
 }
 
+function Set-AgentDirectoryAcl([string]$Path) {
+    $acl = New-Object Security.AccessControl.DirectorySecurity
+    $acl.SetAccessRuleProtection($true, $false)
+    foreach ($sid in @('S-1-5-18', 'S-1-5-32-544')) {
+        $identity = New-Object Security.Principal.SecurityIdentifier($sid)
+        $rule = New-Object Security.AccessControl.FileSystemAccessRule(
+            $identity,
+            'FullControl',
+            'ContainerInherit,ObjectInherit',
+            'None',
+            'Allow'
+        )
+        $acl.AddAccessRule($rule)
+    }
+    Set-Acl -LiteralPath $Path -AclObject $acl
+}
+
 $NodeExe = (Resolve-Path $NodeExe).Path
 $AgentDirectory = (Resolve-Path $AgentDirectory).Path
+$agentDirectoryItem = Get-Item -LiteralPath $AgentDirectory
+if ($agentDirectoryItem.Attributes -band [IO.FileAttributes]::ReparsePoint) {
+    throw 'AgentDirectory must not be a reparse point.'
+}
+if ([string]::IsNullOrWhiteSpace($WinSWExe)) {
+    $WinSWExe = Join-Path $AgentDirectory 'WinSW-x64.exe'
+}
 $WinSWExe = (Resolve-Path $WinSWExe).Path
 $agentBundle = Join-Path $AgentDirectory 'agent.mjs'
 if (-not (Test-Path $agentBundle -PathType Leaf)) {
@@ -39,6 +63,11 @@ if (-not (Test-Path $agentBundle -PathType Leaf)) {
 $actualHash = (Get-FileHash $WinSWExe -Algorithm SHA256).Hash.ToLowerInvariant()
 if ($actualHash -ne $WinSWExpectedSha256.ToLowerInvariant()) {
     throw 'WinSW checksum mismatch. Use the reviewed WinSW 2.12.0 x64 binary or pass an approved checksum explicitly.'
+}
+
+$existing = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
+if ($null -ne $existing) {
+    throw 'The agent service is already installed. Use update-service.ps1 for a transactional update.'
 }
 
 $ConfigFile = (Resolve-Path -LiteralPath $ConfigFile).Path
@@ -54,10 +83,7 @@ if ($missingEnvironment.Count -gt 0) {
 
 $stateDirectory = $settings.AVTOPULT_AGENT_STATE_DIR
 New-Item -ItemType Directory -Path $stateDirectory -Force | Out-Null
-& icacls.exe $stateDirectory /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' | Out-Null
-if ($LASTEXITCODE -ne 0) {
-    throw 'Failed to restrict the agent state directory ACL.'
-}
+Set-AgentDirectoryAcl $stateDirectory
 
 $wrapper = Join-Path $AgentDirectory "$serviceName.exe"
 $configuration = Join-Path $AgentDirectory "$serviceName.xml"
@@ -84,33 +110,54 @@ $xml = @"
 </service>
 "@
 
-$existing = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
-if ($null -ne $existing) {
-    if (-not (Test-Path $wrapper -PathType Leaf)) {
-        throw "Existing service wrapper was not found: $wrapper"
-    }
-    if ((Get-FileHash $wrapper -Algorithm SHA256).Hash -ne $actualHash) {
-        throw 'Existing service wrapper checksum mismatch. Review the existing installation before upgrading.'
-    }
-    if ($existing.Status -ne 'Stopped') {
-        & $wrapper stop
-        if ($LASTEXITCODE -ne 0) { throw 'Failed to stop the existing agent service.' }
-    }
-    & $wrapper uninstall
-    if ($LASTEXITCODE -ne 0) { throw 'Failed to uninstall the existing agent service.' }
-}
-
 Copy-Item $WinSWExe $wrapper -Force
 [IO.File]::WriteAllText($configuration, $xml, [Text.UTF8Encoding]::new($false))
-& $wrapper install
-if ($LASTEXITCODE -ne 0) { throw 'Failed to install the agent service.' }
-& $wrapper start
-if ($LASTEXITCODE -ne 0) { throw 'Failed to start the agent service.' }
 
-$installed = Get-Service -Name $serviceName
-$installed.WaitForStatus('Running', [TimeSpan]::FromSeconds(30))
-$installed.Refresh()
-if ($installed.Status -ne 'Running') {
-    throw "Agent service status is $($installed.Status), expected Running."
+# The service runs as SYSTEM, so writable code would be a local privilege-escalation path.
+Set-AgentDirectoryAcl $AgentDirectory
+
+try {
+    $heartbeatReceipt = Join-Path $stateDirectory 'heartbeat-receipt.json'
+    $serviceStartedAt = [DateTime]::UtcNow
+    & $wrapper install
+    if ($LASTEXITCODE -ne 0) { throw 'Failed to install the agent service.' }
+    & $wrapper start
+    if ($LASTEXITCODE -ne 0) { throw 'Failed to start the agent service.' }
+
+    $installed = Get-Service -Name $serviceName
+    $installed.WaitForStatus('Running', [TimeSpan]::FromSeconds(30))
+    Start-Sleep -Seconds 5
+    $installed.Refresh()
+    if ($installed.Status -ne 'Running') {
+        throw "Agent service status is $($installed.Status), expected Running."
+    }
+    $deadline = [DateTime]::UtcNow.AddSeconds(45)
+    while ([DateTime]::UtcNow -lt $deadline) {
+        if (Test-Path -LiteralPath $heartbeatReceipt -PathType Leaf) {
+            $receipt = Get-Content -LiteralPath $heartbeatReceipt -Raw | ConvertFrom-Json
+            $acceptedAt = [DateTime]::Parse($receipt.acceptedAt).ToUniversalTime()
+            if ($receipt.agentId -eq $settings.AVTOPULT_AGENT_ID -and $acceptedAt -ge $serviceStartedAt) {
+                break
+            }
+        }
+        Start-Sleep -Seconds 1
+    }
+    if (-not (Test-Path -LiteralPath $heartbeatReceipt -PathType Leaf)) {
+        throw 'Agent service did not persist an accepted cloud heartbeat.'
+    }
+    $receipt = Get-Content -LiteralPath $heartbeatReceipt -Raw | ConvertFrom-Json
+    if ($receipt.agentId -ne $settings.AVTOPULT_AGENT_ID -or [DateTime]::Parse($receipt.acceptedAt).ToUniversalTime() -lt $serviceStartedAt) {
+        throw 'Agent service did not produce a fresh accepted cloud heartbeat.'
+    }
+}
+catch {
+    $failure = $_
+    $created = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
+    if ($null -ne $created) {
+        if ($created.Status -ne 'Stopped') { & $wrapper stop | Out-Null }
+        & $wrapper uninstall | Out-Null
+    }
+    Remove-Item -LiteralPath $wrapper, $configuration -Force -ErrorAction SilentlyContinue
+    throw $failure
 }
 Write-Host 'AvtoPult 1C Integration Agent is installed and running.' -ForegroundColor Green

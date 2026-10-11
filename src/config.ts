@@ -21,6 +21,16 @@ const schema = z.object({
     .min(1)
     .default('C:\\ProgramData\\AvtoPult\\OneCAgent'),
   AVTOPULT_AGENT_REQUEST_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(60_000).default(15_000),
+  AVTOPULT_AGENT_MAX_STATE_BYTES: z.coerce
+    .bigint()
+    .min(100_000_000n)
+    .max(1_000_000_000_000n)
+    .default(2_000_000_000n),
+  AVTOPULT_AGENT_MIN_FREE_BYTES: z.coerce
+    .bigint()
+    .min(100_000_000n)
+    .max(1_000_000_000_000n)
+    .default(1_000_000_000n),
   KASPI_SMART_POS_URL: z.url().optional(),
   KASPI_SMART_POS_NAME: z.string().trim().min(1).max(128).optional(),
   KASPI_SMART_POS_TOKEN: z.string().min(16).optional(),
@@ -51,6 +61,8 @@ export function readConfig(input: NodeJS.ProcessEnv = process.env) {
     allowWrites: parsed.ONE_C_ALLOW_WRITES === '1',
     stateDir: parsed.AVTOPULT_AGENT_STATE_DIR,
     timeoutMs: parsed.AVTOPULT_AGENT_REQUEST_TIMEOUT_MS,
+    maxStateBytes: parsed.AVTOPULT_AGENT_MAX_STATE_BYTES,
+    minFreeBytes: parsed.AVTOPULT_AGENT_MIN_FREE_BYTES,
     smartPos,
   };
 }

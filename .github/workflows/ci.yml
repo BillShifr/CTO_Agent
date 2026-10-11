@@ -18,17 +18,50 @@ jobs:
       - run: npm install --global npm@11.6.1
       - run: npm ci
       - run: npm run check
+      - name: Exercise containerised Cloud and 1C emulation
+        if: runner.os == 'Ubuntu'
+        run: npm run test:docker-emulation
       - name: Parse Windows service scripts
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          Get-ChildItem *.ps1 | ForEach-Object {
+          Get-ChildItem *.ps1, one-c-extension-source/tools/*.ps1 | ForEach-Object {
             $tokens = $null
             $errors = $null
             [void][System.Management.Automation.Language.Parser]::ParseFile($_.FullName, [ref]$tokens, [ref]$errors)
             if ($errors.Count) { throw ($errors | Out-String) }
           }
+      - name: Exercise Windows update and rollback transactions
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: ./test-windows-maintenance.ps1
+      - name: Exercise one-time enrollment exchange
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: ./test-windows-enrollment.ps1
+      - name: Exercise real Windows service install, update and rollback
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          $winsw = Join-Path $env:RUNNER_TEMP 'WinSW-x64.exe'
+          Invoke-WebRequest -Uri 'https://github.com/winsw/winsw/releases/download/v2.12.0/WinSW-x64.exe' -OutFile $winsw
+          $expected = '05b82d46ad331cc16bdc00de5c6332c1ef818df8ceefcd49c726553209b3a0da'
+          if ((Get-FileHash $winsw -Algorithm SHA256).Hash.ToLowerInvariant() -ne $expected) {
+            throw 'Downloaded WinSW checksum mismatch.'
+          }
+          ./test-windows-service-acceptance.ps1 -WinSWExe $winsw
+      - name: Build production Windows package
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          $winsw = Join-Path $env:RUNNER_TEMP 'WinSW-x64.exe'
+          node scripts/build-release.mjs --winsw $winsw
+          $archive = Join-Path $PWD '.artifacts\AvtoPult-OneCAgent-windows-x64.zip'
+          Compress-Archive -Path '.artifacts\one-c-agent\*' -DestinationPath $archive -CompressionLevel Optimal
+          $hash = (Get-FileHash $archive -Algorithm SHA256).Hash.ToLowerInvariant()
+          [IO.File]::WriteAllText("$archive.sha256", "$hash  AvtoPult-OneCAgent-windows-x64.zip`n", [Text.UTF8Encoding]::new($false))
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: one-c-agent-${{ matrix.os }}
-          path: .artifacts/one-c-agent/
+          path: .artifacts/
+          include-hidden-files: true

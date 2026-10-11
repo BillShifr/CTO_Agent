@@ -10,6 +10,8 @@ function agentConfig(directory: string, timeoutMs: number): AgentConfig {
     agentId: 'agent',
     stateDir: directory,
     timeoutMs,
+    maxStateBytes: 2_000_000_000n,
+    minFreeBytes: 100_000_000n,
     secret: 's'.repeat(32),
     cloudUrl: new URL('https://cloud.example/agent/'),
     callbackUrl: new URL('https://cloud.example/integrations/one-c/callback'),
@@ -78,7 +80,7 @@ it('persists an OData failure and replays it after a lost cloud response', async
     return new Response('private upstream body', { status: 404 });
   });
   try {
-    await expect(new OneCAgent(config).runOnce()).rejects.toThrow('connection reset');
+    await expect(new OneCAgent(config).runOnce()).resolves.toBeUndefined();
     const pending = await readFile(join(directory, 'pending-results.json'), 'utf8');
     expect(pending).toContain('ODATA_HTTP_404');
     expect(pending).not.toContain('private upstream body');

@@ -1,0 +1,39 @@
+services:
+  emulator:
+    image: node:22.20.0-bookworm-slim
+    working_dir: /emulation
+    command: ['node', 'server.mjs']
+    volumes:
+      - ./emulation:/emulation:ro
+      - ./.artifacts/emulation-certs:/certs:ro
+    ports:
+      - '127.0.0.1:18443:8443'
+
+  agent:
+    build:
+      context: .
+      dockerfile: Dockerfile.emulation
+    depends_on:
+      - emulator
+    restart: on-failure
+    environment:
+      AVTOPULT_AGENT_ID: emulated-agent
+      AVTOPULT_API_URL: https://emulator:8443/api/v1/
+      AVTOPULT_AGENT_SECRET: emulated-agent-secret-000000000000
+      ONE_C_WRITE_URL: http://emulator:8080/infobase/hs/avtopult/v1/
+      ONE_C_USERNAME: avtopult-writer
+      ONE_C_PASSWORD: emulated-write-password
+      ONE_C_ODATA_URL: http://emulator:8080/infobase/odata/standard.odata/
+      ONE_C_ODATA_USERNAME: avtopult-reader
+      ONE_C_ODATA_PASSWORD: emulated-read-password
+      ONE_C_ALLOW_HTTP: '1'
+      ONE_C_ALLOW_WRITES: '1'
+      AVTOPULT_AGENT_REQUEST_TIMEOUT_MS: '5000'
+      AVTOPULT_AGENT_MIN_FREE_BYTES: '100000000'
+      NODE_EXTRA_CA_CERTS: /certs/emulator.crt
+    volumes:
+      - ./.artifacts/emulation-certs:/certs:ro
+      - agent-state:/state
+
+volumes:
+  agent-state:

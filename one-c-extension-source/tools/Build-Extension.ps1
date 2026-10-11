@@ -4,9 +4,13 @@ param(
     [ValidateScript({ Test-Path $_ -PathType Leaf })]
     [string]$PlatformExe,
 
-    [Parameter(Mandatory = $true)]
+    [Parameter(Mandatory = $true, ParameterSetName = 'Server')]
     [ValidateNotNullOrEmpty()]
     [string]$InfoBase,
+
+    [Parameter(Mandatory = $true, ParameterSetName = 'File')]
+    [ValidateScript({ Test-Path $_ -PathType Container })]
+    [string]$FileInfoBase,
 
     [Parameter(Mandatory = $true)]
     [ValidateScript({ Test-Path $_ -PathType Container })]
@@ -65,7 +69,12 @@ New-Item -ItemType Directory -Path $logs -Force | Out-Null
 $auth = @()
 if (-not [string]::IsNullOrWhiteSpace($UserName)) { $auth += @('/N', $UserName) }
 if (-not [string]::IsNullOrWhiteSpace($Password)) { $auth += @('/P', $Password) }
-$common = @('DESIGNER', '/S', $InfoBase, '/DisableStartupDialogs') + $auth
+$connection = if ($PSCmdlet.ParameterSetName -eq 'File') {
+    @('/F', [IO.Path]::GetFullPath($FileInfoBase))
+} else {
+    @('/S', $InfoBase)
+}
+$common = @('DESIGNER') + $connection + @('/DisableStartupDialogs') + $auth
 
 function Invoke-Designer([string]$Name, [string[]]$Arguments) {
     $log = Join-Path $logs "$Name.log"

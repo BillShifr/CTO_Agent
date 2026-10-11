@@ -235,14 +235,43 @@ export const oneCAgentHeartbeatSchema = z
     version: z.string().trim().min(1).max(64),
     startedAt: z.iso.datetime(),
     pendingResults: z.number().int().nonnegative(),
+    storage: z
+      .object({
+        status: z.enum(['ok', 'degraded']),
+        stateBytes: z.string().regex(/^\d+$/),
+        freeBytes: z.string().regex(/^\d+$/),
+        maxStateBytes: z.string().regex(/^[1-9]\d*$/),
+        minFreeBytes: z.string().regex(/^[1-9]\d*$/),
+        queues: z
+          .object({
+            results: z.number().int().nonnegative(),
+            odataTransfers: z.number().int().nonnegative(),
+            smartPosPayments: z.number().int().nonnegative(),
+          })
+          .strict(),
+      })
+      .strict()
+      .optional(),
     components: z
       .object({
+        resultDelivery: z.enum(['ok', 'degraded']).default('ok'),
+        storage: z.enum(['ok', 'degraded']).default('ok'),
         smartPos: z.enum(['ok', 'disabled', 'degraded']),
         oneCEvents: z.enum(['ok', 'degraded']),
         oneCDocuments: z.enum(['ok', 'degraded']),
       })
       .strict(),
-    failures: z.array(z.enum(['smart_pos', 'one_c_events', 'one_c_documents'])).max(3),
+    failures: z
+      .array(
+        z.enum([
+          'result_delivery',
+          'agent_storage',
+          'smart_pos',
+          'one_c_events',
+          'one_c_documents',
+        ]),
+      )
+      .max(5),
   })
   .strict();
 
