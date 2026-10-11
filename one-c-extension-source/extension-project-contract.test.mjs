@@ -28,7 +28,7 @@ test('exported extension project must contain metadata and every executable modu
     }
 
     const result = await verifyExtensionProject(directory);
-    assert.equal(result.required.length, 40);
+    assert.equal(result.required.length, 41);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
@@ -46,7 +46,7 @@ test('manifest covers every maintained common module and required metadata objec
     sourceDirectories,
   );
   assert.deepEqual(manifest.httpServices, ['AvtoPult']);
-  assert.equal(manifest.informationRegisters.length, 12);
+  assert.equal(manifest.informationRegisters.length, 13);
   assert.deepEqual(manifest.eventSubscriptions, [
     'AvtoPultЗаказыПриЗаписи',
     'AvtoPultРасчетыПриЗаписи',

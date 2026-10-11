@@ -1,4 +1,4 @@
-param([Parameter(Mandatory = $true)][string]$WinSWExe)
+param([Parameter(Mandatory = $true)][string]$WinSWExe, [string]$RuntimeDirectory)
 
 $ErrorActionPreference = 'Stop'
 $serviceName = 'AvtoPultOneCAgent'
@@ -42,6 +42,15 @@ try {
     Write-StubRelease $current 'old' $true
     Write-StubRelease $goodRelease 'good' $true
     Write-StubRelease $badRelease 'bad' $false
+    $nodeExe = (Get-Command node.exe).Source
+    if ($RuntimeDirectory) {
+        foreach ($directory in @($current, $goodRelease, $badRelease)) {
+            Copy-Item -LiteralPath $RuntimeDirectory -Destination (Join-Path $directory 'runtime') -Recurse
+            $runtimeHash = (Get-FileHash (Join-Path $directory 'runtime/node.exe') -Algorithm SHA256).Hash.ToLowerInvariant()
+            Add-Content -LiteralPath (Join-Path $directory 'SHA256SUMS') -Value "$runtimeHash  runtime/node.exe" -Encoding UTF8
+        }
+        $nodeExe = Join-Path $current 'runtime/node.exe'
+    }
     $settings = @{
         AVTOPULT_AGENT_ID = 'windows-acceptance'
         AVTOPULT_API_URL = 'https://example.invalid'
@@ -56,7 +65,7 @@ try {
     }
     [IO.File]::WriteAllText($config, ($settings | ConvertTo-Json), [Text.UTF8Encoding]::new($false))
 
-    & (Join-Path $PSScriptRoot 'install-service.ps1') -NodeExe (Get-Command node.exe).Source -AgentDirectory $current -WinSWExe $WinSWExe -ConfigFile $config
+    & (Join-Path $PSScriptRoot 'install-service.ps1') -NodeExe $nodeExe -AgentDirectory $current -WinSWExe $WinSWExe -ConfigFile $config
     Wait-Marker 'old'
 
     $installAcl = Get-Acl -LiteralPath $current
@@ -71,7 +80,7 @@ try {
 
     $reinstallFailed = $false
     try {
-        & (Join-Path $PSScriptRoot 'install-service.ps1') -NodeExe (Get-Command node.exe).Source -AgentDirectory $current -WinSWExe $WinSWExe -ConfigFile $config
+        & (Join-Path $PSScriptRoot 'install-service.ps1') -NodeExe $nodeExe -AgentDirectory $current -WinSWExe $WinSWExe -ConfigFile $config
     }
     catch { $reinstallFailed = $true }
     if (-not $reinstallFailed) { throw 'A second install replaced the running service instead of requiring update-service.ps1.' }
@@ -79,12 +88,12 @@ try {
     $serviceAfterRejectedInstall.Refresh()
     if ($serviceAfterRejectedInstall.Status -ne 'Running') { throw 'Rejected reinstall disrupted the running service.' }
 
-    & (Join-Path $PSScriptRoot 'update-service.ps1') -NodeExe (Get-Command node.exe).Source -CurrentDirectory $current -ReleaseDirectory $goodRelease -ConfigFile $config
+    & (Join-Path $PSScriptRoot 'update-service.ps1') -NodeExe $nodeExe -CurrentDirectory $current -ReleaseDirectory $goodRelease -ConfigFile $config
     Wait-Marker 'good'
 
     $failed = $false
     try {
-        & (Join-Path $PSScriptRoot 'update-service.ps1') -NodeExe (Get-Command node.exe).Source -CurrentDirectory $current -ReleaseDirectory $badRelease -ConfigFile $config
+        & (Join-Path $PSScriptRoot 'update-service.ps1') -NodeExe $nodeExe -CurrentDirectory $current -ReleaseDirectory $badRelease -ConfigFile $config
     }
     catch { $failed = $true }
     if (-not $failed) { throw 'A release whose service exits immediately was accepted.' }

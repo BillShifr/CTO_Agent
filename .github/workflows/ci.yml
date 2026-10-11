@@ -25,7 +25,7 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          Get-ChildItem *.ps1, one-c-extension-source/tools/*.ps1 | ForEach-Object {
+          Get-ChildItem *.ps1, scripts/*.ps1, one-c-extension-source/tools/*.ps1 | ForEach-Object {
             $tokens = $null
             $errors = $null
             [void][System.Management.Automation.Language.Parser]::ParseFile($_.FullName, [ref]$tokens, [ref]$errors)
@@ -55,7 +55,9 @@ jobs:
         shell: powershell
         run: |
           $winsw = Join-Path $env:RUNNER_TEMP 'WinSW-x64.exe'
-          node scripts/build-release.mjs --winsw $winsw
+          $runtime = Join-Path $env:RUNNER_TEMP ('avtopult-runtime-' + [Guid]::NewGuid().ToString('N'))
+          ./scripts/prepare-windows-runtime.ps1 -Destination $runtime
+          node scripts/build-release.mjs --winsw $winsw --runtime $runtime
           $archive = Join-Path $PWD '.artifacts\AvtoPult-OneCAgent-windows-x64.zip'
           Compress-Archive -Path '.artifacts\one-c-agent\*' -DestinationPath $archive -CompressionLevel Optimal
           $hash = (Get-FileHash $archive -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -64,6 +66,10 @@ jobs:
         if: runner.os == 'Windows'
         shell: powershell
         run: ./test-windows-setup.ps1
+      - name: Verify service recovery with bundled Node.js
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: ./test-windows-service-acceptance.ps1 -WinSWExe '.artifacts/one-c-agent/WinSW-x64.exe' -RuntimeDirectory '.artifacts/one-c-agent/runtime'
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: one-c-agent-${{ matrix.os }}

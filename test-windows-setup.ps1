@@ -5,7 +5,7 @@ try {
     Copy-Item -Path (Join-Path $PSScriptRoot '.artifacts/one-c-agent/*') -Destination $fixture -Recurse
     $setup = Join-Path $fixture 'setup-agent.ps1'
     $node = (Get-Command node.exe).Source
-    & $setup -NodeExe $node -PreflightOnly
+    & $setup -PreflightOnly
     if (Get-Service AvtoPultOneCAgent -ErrorAction SilentlyContinue) {
         throw 'Preflight created a service.'
     }

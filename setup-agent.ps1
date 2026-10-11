@@ -4,7 +4,7 @@ param(
     [string]$OneCBaseUrl,
     [string]$ReadUser,
     [string]$WriteUser,
-    [string]$NodeExe = 'C:\Program Files\nodejs\node.exe',
+    [string]$NodeExe,
     [switch]$AllowLocalHttp,
     [switch]$PreflightOnly
 )
@@ -12,6 +12,7 @@ param(
 $ErrorActionPreference = 'Stop'
 $agentDirectory = $PSScriptRoot
 $configFile = 'C:\ProgramData\AvtoPult\OneCAgent\agent-config.json'
+if (-not $NodeExe) { $NodeExe = Join-Path $agentDirectory 'runtime/node.exe' }
 
 # Preflight never enrolls, claims work or changes an existing service.
 $principal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
@@ -23,10 +24,6 @@ if (Get-Service -Name AvtoPultOneCAgent -ErrorAction SilentlyContinue) {
 }
 if (-not (Test-Path -LiteralPath $NodeExe -PathType Leaf)) {
     throw 'Node.js 22.20+ (major 22) is required. Install it before setup; nothing was changed.'
-}
-$runtimeVersion = & $NodeExe -p 'process.versions.node'
-if ($LASTEXITCODE -ne 0 -or $runtimeVersion -notmatch '^22\.(\d+)\.\d+$' -or [int]$Matches[1] -lt 20) {
-    throw 'Unsupported Node.js. Use version 22.20+ within major 22.'
 }
 $root = [IO.Path]::GetFullPath($agentDirectory).TrimEnd('\') + '\'
 $listedFiles = @{}
@@ -47,10 +44,17 @@ foreach ($line in Get-Content -LiteralPath (Join-Path $root 'SHA256SUMS') -Encod
 foreach ($required in @('agent.mjs', 'WinSW-x64.exe', 'configure-environment.ps1', 'agent-maintenance.ps1', 'install-service.ps1', 'diagnose-agent.ps1', 'setup-agent.ps1')) {
     if (-not $listedFiles.ContainsKey($required)) { throw "Package manifest is missing: $required" }
 }
+if ($NodeExe -eq (Join-Path $agentDirectory 'runtime/node.exe') -and -not $listedFiles.ContainsKey('runtime/node.exe')) {
+    throw 'Bundled runtime is missing from checksum manifest.'
+}
 if ((Get-FileHash -LiteralPath (Join-Path $root 'WinSW-x64.exe') -Algorithm SHA256).Hash -ne '05b82d46ad331cc16bdc00de5c6332c1ef818df8ceefcd49c726553209b3a0da') {
     throw 'Untrusted WinSW binary.'
 }
 Write-Host 'Package and runtime: OK. This does NOT confirm native 1C acceptance.'
+$runtimeVersion = & $NodeExe -p 'process.versions.node'
+if ($LASTEXITCODE -ne 0 -or $runtimeVersion -notmatch '^22\.(\d+)\.\d+$' -or [int]$Matches[1] -lt 20) {
+    throw 'Unsupported Node.js. Use version 22.20+ within major 22.'
+}
 if ($PreflightOnly) { return }
 
 if (-not (Test-Path -LiteralPath $configFile)) {
