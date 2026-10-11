@@ -33,6 +33,8 @@ for (const name of [
   'agent-maintenance.ps1',
   'README.md',
   'INSTALL.md',
+  'FIELD-INSTALL.md',
+  'setup-agent.ps1',
   'configure-environment.ps1',
   'diagnose-agent.ps1',
   'install-service.ps1',

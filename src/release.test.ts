@@ -37,6 +37,7 @@ describe('Windows release artifact', () => {
     expect(metadata.winsw.sha256).toMatch(/^[a-f\d]{64}$/);
     for (const name of [
       'agent-maintenance.ps1',
+      'setup-agent.ps1',
       'diagnose-agent.ps1',
       'rotate-secrets.ps1',
       'update-service.ps1',
