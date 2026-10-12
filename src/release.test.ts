@@ -27,6 +27,7 @@ describe('Windows release artifact', () => {
       true,
     );
     expect(entries.some((entry) => entry.endsWith('one-c-write-api.md'))).toBe(true);
+    expect(entries.some((entry) => entry.endsWith('  INTEGRATION.md'))).toBe(true);
     expect(entries.some((entry) => entry.endsWith('RELEASE.json'))).toBe(true);
     const metadata = JSON.parse(await readFile(resolve(release, 'RELEASE.json'), 'utf8')) as {
       platform: string;

@@ -38,6 +38,7 @@ for (const name of [
   'agent-maintenance.ps1',
   'README.md',
   'INSTALL.md',
+  'INTEGRATION.md',
   'FIELD-INSTALL.md',
   'RELEASE-READINESS.md',
   'setup-agent.ps1',
