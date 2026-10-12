@@ -38,6 +38,7 @@ describe('Windows release artifact', () => {
     for (const name of [
       'agent-maintenance.ps1',
       'setup-agent.ps1',
+      'configure-mappings.ps1',
       'diagnose-agent.ps1',
       'rotate-secrets.ps1',
       'update-service.ps1',
@@ -46,6 +47,7 @@ describe('Windows release artifact', () => {
     for (const name of [
       'ORDER-METADATA.md',
       'INVOICE-METADATA.md',
+      'P-13-INTEGRATION.md',
       'REVERSE-METADATA.md',
       'src/CommonModules/AvtoPultАдаптерКА2/Module.bsl',
       'src/CommonModules/AvtoPultЗаказы/Module.bsl',

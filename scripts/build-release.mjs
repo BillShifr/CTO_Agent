@@ -43,6 +43,7 @@ for (const name of [
   'setup-agent.ps1',
   'install-package.ps1',
   'configure-environment.ps1',
+  'configure-mappings.ps1',
   'diagnose-agent.ps1',
   'install-service.ps1',
   'rotate-secrets.ps1',

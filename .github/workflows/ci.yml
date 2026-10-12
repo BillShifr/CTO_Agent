@@ -39,6 +39,10 @@ jobs:
         if: runner.os == 'Windows'
         shell: powershell
         run: ./test-windows-enrollment.ps1
+      - name: Exercise mappings setup entry point
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: ./test-windows-mappings.ps1
       - name: Exercise real Windows service install, update and rollback
         if: runner.os == 'Windows'
         shell: powershell
