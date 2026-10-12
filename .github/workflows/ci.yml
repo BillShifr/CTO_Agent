@@ -66,6 +66,10 @@ jobs:
         if: runner.os == 'Windows'
         shell: powershell
         run: ./test-windows-setup.ps1
+      - name: Verify archive installation safety
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: ./test-windows-package.ps1
       - name: Verify service recovery with bundled Node.js
         if: runner.os == 'Windows'
         shell: powershell

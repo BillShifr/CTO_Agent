@@ -41,6 +41,7 @@ for (const name of [
   'FIELD-INSTALL.md',
   'RELEASE-READINESS.md',
   'setup-agent.ps1',
+  'install-package.ps1',
   'configure-environment.ps1',
   'diagnose-agent.ps1',
   'install-service.ps1',
