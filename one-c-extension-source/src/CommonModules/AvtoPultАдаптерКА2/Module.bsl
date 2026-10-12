@@ -12,10 +12,10 @@
 	Возврат AvtoPultСчета.Создать(Payload);
 КонецФункции
 
-// Internal entry point. A verified configuration profile supplies the expected registers.
-Функция ПровестиДокумент(Ссылка, ИменаРегистров) Экспорт
+// Internal entry point. Only a profile verified and stored in the test infobase may supply registers.
+Функция ПровестиДокумент(Ссылка, ИдентификаторПрофиля) Экспорт
 	ПроверитьТранзакцию();
-	Возврат AvtoPultПроведение.ПровестиИПроверить(Ссылка, ИменаРегистров);
+	Возврат AvtoPultПроведение.ПровестиПоПрофилю(Ссылка, ИдентификаторПрофиля);
 КонецФункции
 
 Функция ПрименитьНачисления(Payload) Экспорт

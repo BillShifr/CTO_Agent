@@ -3,6 +3,11 @@ import { cp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
+import { execFileSync } from 'node:child_process';
+
+const runtimeArgument = process.argv.indexOf('--runtime');
+const runtimeSource = runtimeArgument === -1 ? null : process.argv[runtimeArgument + 1];
+if (runtimeArgument !== -1 && !runtimeSource) throw new Error('--runtime requires a directory');
 
 const winswArgument = process.argv.indexOf('--winsw');
 const winswSource = winswArgument === -1 ? null : process.argv[winswArgument + 1];
@@ -33,6 +38,9 @@ for (const name of [
   'agent-maintenance.ps1',
   'README.md',
   'INSTALL.md',
+  'FIELD-INSTALL.md',
+  'RELEASE-READINESS.md',
+  'setup-agent.ps1',
   'configure-environment.ps1',
   'diagnose-agent.ps1',
   'install-service.ps1',
@@ -55,6 +63,19 @@ if (winswSource) {
   await writeFile(resolve(releaseDirectory, 'WinSW-x64.exe'), winswBytes);
 }
 
+if (runtimeSource) {
+  const identity = execFileSync(
+    resolve(runtimeSource, 'node.exe'),
+    ['-p', "process.version + '/' + process.platform + '/' + process.arch"],
+    { encoding: 'utf8' },
+  ).trim();
+  if (identity !== 'v22.20.0/win32/x64') throw new Error('Unexpected Windows runtime');
+  await mkdir(resolve(releaseDirectory, 'runtime'));
+  for (const name of ['node.exe', 'LICENSE']) {
+    await cp(resolve(runtimeSource, name), resolve(releaseDirectory, 'runtime', name));
+  }
+}
+
 await writeFile(
   resolve(releaseDirectory, 'RELEASE.json'),
   `${JSON.stringify(
@@ -62,6 +83,11 @@ await writeFile(
       package: '@avtopult/one-c-agent',
       version: packageMetadata.version,
       node: '22.20.x',
+      runtime: { included: runtimeSource !== null, version: '22.20.0' },
+      sourceRevision: execFileSync('git', ['rev-parse', 'HEAD'], {
+        cwd: repositoryDirectory,
+        encoding: 'utf8',
+      }).trim(),
       platform: 'windows-x64',
       winsw: { included: winswSource !== null, version: '2.12.0', sha256: winswSha256 },
     },

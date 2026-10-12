@@ -85,10 +85,8 @@ test('installation preflight verifies every module, service, register and requir
 
 test('native posting is fail-closed and verifies persisted movements before success', async () => {
   const source = await readCommonModule('AvtoPultПроведение');
-  const posting = source.slice(
-    source.indexOf('Функция ПровестиИПроверить('),
-    source.indexOf('КонецФункции'),
-  );
+  const postingStart = source.indexOf('Функция ПровестиИПроверить(');
+  const posting = source.slice(postingStart, source.indexOf('КонецФункции', postingStart));
   assert.match(posting, /ПроверитьТранзакцию\(\)/);
   assert.match(posting, /ОбластьПоддерживаемогоДокумента\(Ссылка\)/);
   assert.match(posting, /POSTING_MOVEMENT_PROFILE_REQUIRED/);
@@ -100,11 +98,17 @@ test('native posting is fail-closed and verifies persisted movements before succ
   assert.doesNotMatch(posting, /НачатьТранзакцию|ЗафиксироватьТранзакцию|ОтменитьТранзакцию/);
   assert.match(source, /ГДЕ Движения\.Регистратор = &Регистратор/);
   assert.match(source, /POSTING_MOVEMENT_NOT_FOUND/);
+  assert.match(source, /Функция ПровестиПоПрофилю\(Ссылка, ИдентификаторПрофиля\) Экспорт/);
+  assert.match(source, /РегистрСведений\.AvtoPultПрофилиПроведения/);
+  assert.match(source, /POSTING_PROFILE_NOT_VERIFIED/);
+  assert.match(source, /POSTING_PROFILE_DOCUMENT_MISMATCH/);
+  assert.match(source, /POSTING_PROFILE_HASH_MISMATCH/);
+  assert.match(source, /AvtoPultИнтеграция\.SHA256\(AvtoPultКонтракт\.JSON\(ДанныеХеша\)\)/);
   assert.doesNotMatch(source, /Метаданны\(\)\.ПолноеИмя/);
   assert.match(source, /Блокировка\.Добавить\(Область\)/);
   const adapter = await readCommonModule('AvtoPultАдаптерКА2');
-  assert.match(adapter, /Функция ПровестиДокумент\(Ссылка, ИменаРегистров\) Экспорт/);
-  assert.match(adapter, /AvtoPultПроведение\.ПровестиИПроверить\(Ссылка, ИменаРегистров\)/);
+  assert.match(adapter, /Функция ПровестиДокумент\(Ссылка, ИдентификаторПрофиля\) Экспорт/);
+  assert.match(adapter, /AvtoPultПроведение\.ПровестиПоПрофилю\(Ссылка, ИдентификаторПрофиля\)/);
   for (const documentName of [
     'ЗаказКлиента',
     'СчетНаОплатуКлиенту',
@@ -502,6 +506,9 @@ test('native order subscription captures immutable revisions without guessing cl
   assert.match(source, /Не ТранзакцияАктивна\(\)/);
   assert.match(source, /ПредыдущаяРевизия = Голова\.RevisionId/);
   assert.match(source, /Запись\.BaseVersion = Связь\.Версия/);
+  assert.match(source, /BaseVersion, BasePayloadJSON/);
+  assert.match(source, /Ревизия\.BaseVersion, Ревизия\.SHA256/);
+  assert.doesNotMatch(source, /ТекущаяВерсияСвязи/);
   assert.match(source, /Запись\.PayloadJSON = СнимокJSON/);
   assert.match(source, /Запись\.Состояние = "pending"/);
   assert.ok(source.indexOf('Запись.Записать()') < source.indexOf('Голова.Записать()'));
@@ -525,6 +532,9 @@ test('reverse revisions are serialized, suppress cloud echo and advance baseline
   assert.match(reverse, /REVISION_ITEM_IDENTITY_CONFLICT/);
   assert.match(reverse, /Процедура ПодтвердитьДоставку\(EventId, ВерсияОблака\) Экспорт/);
   assert.match(reverse, /Связь\.Версия = ВерсияОблака/);
+  assert.match(reverse, /ОбновитьВерсию1СЕслиРевизияТекущая\(Связь, Ревизия\)/);
+  assert.match(reverse, /JSON\(Снимок\) <> Ревизия\.PayloadJSON/);
+  assert.match(reverse, /Связь\.Версия1С = ВерсияДокумента\(Ревизия\.ЗаказКлиента\)/);
   assert.match(reverse, /ИзменитьСостояниеРевизии\([^\n]+"delivered"\)/);
   assert.match(
     integration,
@@ -567,6 +577,7 @@ test('native settlements use allocation generations and compensate unpost or cha
   assert.match(settlements, /paymentExternalId/);
   assert.match(settlements, /refundExternalId/);
   assert.match(settlements, /AmountTiyn = Тиыны\(Строка\.Сумма\)/);
+  assert.match(settlements, /Не Запись\.Выбран\(\)[^\n]+SETTLEMENT_EVENT_NOT_FOUND/);
   assert.match(settlements, /ПоставитьСобытиеВОчердь\(Строка\.EventId, Payload\)/);
   assert.match(integration, /AvtoPultРасчеты\.ПоставитьОжидающиеВОчердь\(\)/);
   assert.match(integration, /AvtoPultРасчеты\.ПодтвердитьДоставку\(EventId\)/);

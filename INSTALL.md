@@ -54,7 +54,10 @@ npm run bundle
 `.artifacts/one-c-agent`. Windows job CI дополнительно публикует единый архив
 `AvtoPult-OneCAgent-windows-x64.zip`, его внешний SHA-256 и уже проверенный `WinSW-x64.exe`.
 Перед распаковкой сверьте внешний hash архива, после распаковки — внутренний `SHA256SUMS`.
-На Windows дополнительно нужен только Node.js 22 LTS. Обычный `sc.exe create node.exe`
+Windows CI-пакет содержит Node.js 22.20.0 x64 в `runtime/` вместе с лицензией.
+Запуск мастера: `powershell -ExecutionPolicy Bypass -File C:\one-c-agent\setup-agent.ps1 -AllowLocalHttp`.
+При ручном вызове скриптов передавайте `-NodeExe 'C:\one-c-agent\runtime\node.exe'`.
+Обычный `sc.exe create node.exe`
 не используется: Node.js сам по себе не реализует протокол Windows Service Control Manager.
 
 Скачайте `WinSW-x64.exe` только из [официального release WinSW
