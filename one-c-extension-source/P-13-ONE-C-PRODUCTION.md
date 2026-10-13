@@ -1,14 +1,25 @@
 # Подключение боевой 1С к СТО — действия специалиста 1С
 
-## 1. Скачать исходники
+## 1. Распаковать комплект
 
-1. Открыть `https://github.com/BillShifr/CTO_Agent/actions/workflows/ci.yml`.
-2. Открыть последний запуск ветки `main`, скачать артефакт `one-c-agent-windows-latest`.
-3. Распаковать вложенный `AvtoPult-OneCAgent-windows-x64.zip` в `C:\AvtoPult\agent`.
-4. Исходники расширения находятся в `C:\AvtoPult\agent\one-c-extension-source`.
+Скопировать `СТО-1С-production-kit.zip` на сервер 1С и выполнить PowerShell от имени
+администратора:
 
-Архив содержит исходники и скрипты, но не готовый `.cfe`: внутренние UUID проекта должен
-однократно создать Конфигуратор целевой КА2.
+```powershell
+$kit = 'C:\СТО-1С-production-kit.zip'
+$package = 'C:\AvtoPult\package'
+$agent = 'C:\AvtoPult\agent'
+
+Expand-Archive -LiteralPath $kit -DestinationPath $package -Force
+$archive = Join-Path $package 'AvtoPult-OneCAgent-windows-x64.zip'
+$expected = ((Get-Content "$archive.sha256" -Raw).Trim() -split '\s+')[0]
+$actual = (Get-FileHash $archive -Algorithm SHA256).Hash
+if ($actual -ne $expected) { throw 'Повреждён пакет агента' }
+Expand-Archive -LiteralPath $archive -DestinationPath $agent -Force
+```
+
+Исходники расширения находятся в `C:\AvtoPult\agent\one-c-extension-source`. Готового `.cfe`
+в комплекте нет: внутренние UUID проекта должен однократно создать Конфигуратор целевой КА2.
 
 ## 2. Подготовить копию базы для сборки
 
