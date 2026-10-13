@@ -9,6 +9,7 @@
     { "name": "AvtoPultИзмененияЗаказов", "sourceDirectory": "AvtoPultИзмененияЗаказов" },
     { "name": "AvtoPultКонтракт", "sourceDirectory": "AvtoPultКонтракт" },
     { "name": "AvtoPultНативнаяПриемка", "sourceDirectory": "AvtoPultНативнаяПриемка" },
+    { "name": "AvtoPultНастройкаПрофилей", "sourceDirectory": "AvtoPultНастройкаПрофилей" },
     { "name": "AvtoPultПроведение", "sourceDirectory": "AvtoPultПроведение" },
     { "name": "AvtoPultРасчеты", "sourceDirectory": "AvtoPultРасчеты" },
     { "name": "AvtoPultСамопроверка", "sourceDirectory": "AvtoPultСамопроверка" },

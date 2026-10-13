@@ -5,6 +5,78 @@ import test from 'node:test';
 const readCommonModule = (name) =>
   readFile(new URL(`./src/CommonModules/${name}/Module.bsl`, import.meta.url), 'utf8');
 
+test('profile document lookup permits known types and refuses ambiguous document numbers', async () => {
+  const source = await readCommonModule('AvtoPultНастройкаПрофилей');
+  const lookup = source.slice(
+    source.indexOf('Функция НайтиДокумент'),
+    source.indexOf('Функция СоздатьПрофильСтанции'),
+  );
+  assert.match(lookup, /ИменаТипов\(\)\.Найти\(ИмяТипа\) = Неопределено/);
+  assert.match(lookup, /ВЫБРАТЬ ПЕРВЫЕ 2/);
+  assert.match(lookup, /Номер = &Номер И Дата >= &Начало И Дата < &Конец/);
+  assert.match(lookup, /НайденныеДокументы\.Количество\(\) <> 1/);
+  assert.doesNotMatch(lookup, /Записать\(|НачатьТранзакцию/);
+});
+
+test('native profile setup never certifies acceptance or posts documents', async () => {
+  const source = await readCommonModule('AvtoPultНастройкаПрофилей');
+  assert.match(
+    source,
+    /Функция СоздатьПрофильСтанции\(StationId, ЗаказИсточник, НомерСтроки\) Экспорт/,
+  );
+  assert.match(
+    source,
+    /Функция СоздатьПрофильПроведения\(PostingProfileId, ДокументИсточник\) Экспорт/,
+  );
+  assert.match(source, /PROFILE_OUTER_TRANSACTION_FORBIDDEN/);
+  assert.match(source, /Профиль\.Проверен = Ложь/);
+  assert.match(source, /Профиль\.БезНДСПодтверждено = Ложь/);
+  assert.doesNotMatch(source, /Проверен = Истина|БезНДСПодтверждено = Истина|ПроверенВ =/);
+  assert.doesNotMatch(
+    source,
+    /РежимЗаписиДокумента\.Проведение|УстановитьПривилегированныйРежим|ОбменДанными\.Загрузка/,
+  );
+  assert.doesNotMatch(source, /Источник\.Записать|Источник\.Удалить/);
+  assert.equal((source.match(/НачатьТранзакцию\(\)/g) ?? []).length, 2);
+  assert.equal((source.match(/ОтменитьТранзакцию\(\)/g) ?? []).length, 2);
+});
+
+test('station setup serializes retries and checks saved template before committing', async () => {
+  const source = await readCommonModule('AvtoPultНастройкаПрофилей');
+  const station = source.slice(0, source.indexOf('Функция СоздатьПрофильПроведения'));
+  assert.ok(station.indexOf('Заблокировать(') < station.indexOf('Профиль.Прочитать()'));
+  assert.ok(station.indexOf('Если Профиль.Выбран()') < station.indexOf('СоздатьДокумент()'));
+  assert.ok(
+    station.indexOf('ПроверитьОбразец(Образец.Ссылка') < station.indexOf('Профиль.Записать()'),
+  );
+  assert.ok(station.indexOf('Профиль.Записать()') < station.indexOf('ЗафиксироватьТранзакцию()'));
+  assert.match(source, /PROFILE_SETTINGS_CONFLICT/);
+  assert.match(source, /Образец\.Проведен/);
+  assert.match(source, /Образец\.Товары\.Количество\(\) <> 1/);
+  assert.match(source, /Образец\.СуммаДокумента <> 0/);
+  assert.match(source, /СтрокаОбразца\.Цена <> 0/);
+  assert.match(source, /СтрокаИсточника\.СуммаНДС <> 0 Или СтрокаИсточника\.Отменено/);
+  assert.match(source, /PROFILE_TEMPLATE_MOVEMENTS_UNEXPECTED/);
+});
+
+test('posting setup derives register lists natively and rejects conflicting retries', async () => {
+  const source = await readCommonModule('AvtoPultНастройкаПрофилей');
+  const posting = source.slice(
+    source.indexOf('Функция СоздатьПрофильПроведения'),
+    source.indexOf('Процедура ПроверитьВызов'),
+  );
+  assert.match(posting, /Не Источник\.Проведен/);
+  assert.match(posting, /СформироватьПрофильДвижений\(ДокументИсточник\)/);
+  assert.match(posting, /Профиль\.ТипДокумента <> Данные\.documentType/);
+  assert.match(posting, /Профиль\.SHA256 <> Данные\.sha256/);
+  assert.match(posting, /Профиль\.РегистрыJSON <> РегистрыJSON/);
+  const http = await readFile(
+    new URL('./src/HTTPServices/AvtoPult/Module.bsl', import.meta.url),
+    'utf8',
+  );
+  assert.doesNotMatch(http, /НастройкаПрофилей/);
+});
+
 test('revision freezes row identities before its JSON and hash are persisted', async () => {
   const source = await readCommonModule('AvtoPultИзмененияЗаказов');
   assert.match(source, /ЗафиксироватьИдентичностьСтрок\(Снимок, Связь\.WorkOrderId\)/);
