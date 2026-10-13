@@ -28,7 +28,7 @@ test('exported extension project must contain metadata and every executable modu
     }
 
     const result = await verifyExtensionProject(directory);
-    assert.equal(result.required.length, 41);
+    assert.equal(result.required.length, 43);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
