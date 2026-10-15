@@ -18,6 +18,25 @@ test('profile document lookup permits known types and refuses ambiguous document
   assert.doesNotMatch(lookup, /Записать\(|НачатьТранзакцию/);
 });
 
+test('production profile setup accepts one validated replay-safe JSON command', async () => {
+  const source = await readCommonModule('AvtoPultНастройкаПрофилей');
+  const setup = source.slice(
+    source.indexOf('Функция НастроитьПрофилиИзJSON'),
+    source.indexOf('Функция НайтиДокумент'),
+  );
+  assert.match(setup, /ПрочитатьJSON\(Чтение, Ложь\)/);
+  assert.match(setup, /ПроверитьМассив\(Параметры, "stations"\)/);
+  assert.match(setup, /ПроверитьМассив\(Параметры, "postingProfiles"\)/);
+  assert.ok(
+    setup.lastIndexOf('НайтиДокумент(') < setup.indexOf('СоздатьПрофильСтанции('),
+    'all document references must be resolved before the first profile is persisted',
+  );
+  assert.match(setup, /СоздатьПрофильСтанции\(/);
+  assert.match(setup, /СоздатьПрофильПроведения\(/);
+  assert.doesNotMatch(setup, /НачатьТранзакцию|ЗафиксироватьТранзакцию/);
+  assert.match(source, /PROFILE_SETUP_JSON_INVALID/);
+});
+
 test('native profile setup never certifies acceptance or posts documents', async () => {
   const source = await readCommonModule('AvtoPultНастройкаПрофилей');
   assert.match(
