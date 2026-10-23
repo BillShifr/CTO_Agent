@@ -43,6 +43,14 @@ describe('Windows release artifact', () => {
       'diagnose-agent.ps1',
       'rotate-secrets.ps1',
       'update-service.ps1',
+      'PRODUCTION-AUTODEPLOY.md',
+      'production-deployment.ps1',
+      'setup-production-runner.ps1',
+      'runner-job-started.ps1',
+      'deploy-agent-release.ps1',
+      'restore-agent-release.ps1',
+      'diagnose-production.ps1',
+      'production-runner-release.json',
     ])
       expect(entries.some((entry) => entry.endsWith(`  ${name}`))).toBe(true);
     for (const name of [
@@ -109,5 +117,46 @@ describe('Windows release artifact', () => {
     const workflow = await readFile(resolve(workspace, '.github/workflows/ci.yml'), 'utf8');
     expect(workflow).toContain('path: .artifacts/');
     expect(workflow).toContain('include-hidden-files: true');
+  });
+
+  it('deploys only a successful main artifact through the protected production runner', async () => {
+    const workflow = await readFile(
+      resolve(workspace, '.github/workflows/deploy-agent.yml'),
+      'utf8',
+    );
+    expect(workflow).toContain('workflow_run:');
+    expect(workflow).toContain('branches: [main]');
+    expect(workflow).toContain("github.event.workflow_run.conclusion == 'success'");
+    expect(workflow).toContain("github.event.workflow_run.event == 'push'");
+    expect(workflow).toContain('$run.head_sha -ne $main.commit.sha');
+    expect(workflow).toContain('runs-on: [avtopult-one-c-production]');
+    expect(workflow).toContain('environment: production');
+    expect(workflow).toContain(
+      'actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333',
+    );
+    expect(workflow).toContain('-ExpectedSha256 $Matches[1]');
+    expect(workflow).toContain("Join-Path $toolStage 'deploy-agent-release.ps1'");
+    expect(workflow).not.toContain('pull_request:');
+    expect(workflow).not.toContain('actions/checkout@');
+
+    const setup = await readFile(resolve(workspace, 'setup-production-runner.ps1'), 'utf8');
+    expect(setup).toContain("'--no-default-labels'");
+    expect(setup).toContain("'--windowslogonaccount', 'NT AUTHORITY\\SYSTEM'");
+    expect(setup).toContain('ACTIONS_RUNNER_HOOK_JOB_STARTED');
+    const guard = await readFile(resolve(workspace, 'runner-job-started.ps1'), 'utf8');
+    expect(guard).toContain("@('workflow_run', 'workflow_dispatch')");
+    expect(guard).toContain('$actual.workflowRef -ne $policy.workflowRef');
+    const updater = await readFile(resolve(workspace, 'update-service.ps1'), 'utf8');
+    expect(updater).toContain('Wait-AgentAcceptedHeartbeat');
+    expect(updater).toContain('[string]$ResultFile');
+
+    const pinnedRunner = JSON.parse(
+      await readFile(resolve(workspace, 'production-runner-release.json'), 'utf8'),
+    ) as { version: string; asset: string; url: string; sha256: string };
+    expect(pinnedRunner.asset).toBe(`actions-runner-win-x64-${pinnedRunner.version}.zip`);
+    expect(pinnedRunner.url).toBe(
+      `https://github.com/actions/runner/releases/download/v${pinnedRunner.version}/${pinnedRunner.asset}`,
+    );
+    expect(pinnedRunner.sha256).toMatch(/^[a-f\d]{64}$/);
   });
 });

@@ -40,6 +40,7 @@ for (const name of [
   'INSTALL.md',
   'INTEGRATION.md',
   'FIELD-INSTALL.md',
+  'PRODUCTION-AUTODEPLOY.md',
   'RELEASE-READINESS.md',
   'setup-agent.ps1',
   'install-package.ps1',
@@ -50,6 +51,13 @@ for (const name of [
   'rotate-secrets.ps1',
   'uninstall-service.ps1',
   'update-service.ps1',
+  'production-deployment.ps1',
+  'setup-production-runner.ps1',
+  'runner-job-started.ps1',
+  'deploy-agent-release.ps1',
+  'restore-agent-release.ps1',
+  'diagnose-production.ps1',
+  'production-runner-release.json',
 ]) {
   await cp(resolve(agentDirectory, name), resolve(releaseDirectory, name));
 }

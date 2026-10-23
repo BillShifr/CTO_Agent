@@ -6,6 +6,9 @@ param(
     [string]$ApiUrl = 'https://cto24.kz/api/v1/',
     [string]$OneCBaseUrl,
     [switch]$AllowLocalHttp,
+    [switch]$InstallProductionRunner,
+    [string]$RepositoryUrl = 'https://github.com/BillShifr/CTO_Agent',
+    [string]$RunnerGroup,
     [switch]$PreflightOnly
 )
 
@@ -69,7 +72,12 @@ try {
 try {
     & (Join-Path $target 'setup-agent.ps1') -ApiUrl $ApiUrl -OneCBaseUrl $OneCBaseUrl -AllowLocalHttp:$AllowLocalHttp
     if (-not $?) { throw 'Setup failed.' }
+    if ($InstallProductionRunner) {
+        & (Join-Path $target 'setup-production-runner.ps1') -RepositoryUrl $RepositoryUrl `
+            -RunnerGroup $RunnerGroup -AgentDirectory $target
+        if (-not $?) { throw 'Production runner setup failed.' }
+    }
 } catch {
-    Write-Warning "Installation files and any protected configuration were preserved. Fix the error and resume: $target\setup-agent.ps1"
+    Write-Warning "Installation files and protected configuration were preserved. Resume agent setup with $target\setup-agent.ps1; if the agent service is already running, resume runner setup with $target\setup-production-runner.ps1."
     throw
 }

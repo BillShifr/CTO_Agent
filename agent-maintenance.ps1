@@ -76,6 +76,41 @@ function Test-AgentReleaseChecksums([string]$ReleaseDirectory) {
     }
 }
 
+function Wait-AgentAcceptedHeartbeat {
+    param(
+        [Parameter(Mandatory = $true)][string]$ConfigFile,
+        [Parameter(Mandatory = $true)][DateTime]$StartedAt,
+        [ValidateRange(10, 600)][int]$TimeoutSeconds = 90
+    )
+    $settings = Get-Content -LiteralPath $ConfigFile -Raw -Encoding UTF8 | ConvertFrom-Json
+    if ([string]::IsNullOrWhiteSpace($settings.AVTOPULT_AGENT_ID) -or
+        [string]::IsNullOrWhiteSpace($settings.AVTOPULT_AGENT_STATE_DIR)) {
+        throw 'Agent configuration is missing the identity or state directory.'
+    }
+    $receiptPath = Join-Path $settings.AVTOPULT_AGENT_STATE_DIR 'heartbeat-receipt.json'
+    $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+    while ([DateTime]::UtcNow -lt $deadline) {
+        if (Test-Path -LiteralPath $receiptPath -PathType Leaf) {
+            try {
+                $receipt = Get-Content -LiteralPath $receiptPath -Raw -Encoding UTF8 | ConvertFrom-Json
+                $acceptedAt = [DateTime]::Parse($receipt.acceptedAt).ToUniversalTime()
+                if ($receipt.agentId -eq $settings.AVTOPULT_AGENT_ID -and $acceptedAt -ge $StartedAt.ToUniversalTime()) {
+                    return [pscustomobject]@{
+                        agentId = $receipt.agentId
+                        acceptedAt = $acceptedAt.ToString('o')
+                    }
+                }
+            }
+            catch {
+                # The service writes the receipt atomically, but an operator may have replaced it.
+                # Keep polling until timeout so a valid fresh receipt can recover the update.
+            }
+        }
+        Start-Sleep -Seconds 1
+    }
+    throw 'Agent did not persist a fresh heartbeat accepted by AvtoPult Cloud.'
+}
+
 function Invoke-AgentPayloadSwap {
     param(
         [Parameter(Mandatory = $true)][string]$CurrentDirectory,

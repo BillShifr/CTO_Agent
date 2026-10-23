@@ -66,6 +66,10 @@ jobs:
           Compress-Archive -Path '.artifacts\one-c-agent\*' -DestinationPath $archive -CompressionLevel Optimal
           $hash = (Get-FileHash $archive -Algorithm SHA256).Hash.ToLowerInvariant()
           [IO.File]::WriteAllText("$archive.sha256", "$hash  AvtoPult-OneCAgent-windows-x64.zip`n", [Text.UTF8Encoding]::new($false))
+      - name: Verify production deployment controls
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: ./test-windows-production-deployment.ps1
       - name: Verify guided setup preflight and damaged package rejection
         if: runner.os == 'Windows'
         shell: powershell
