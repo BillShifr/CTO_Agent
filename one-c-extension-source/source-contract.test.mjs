@@ -414,7 +414,9 @@ test('write idempotency is fenced before the configuration adapter is invoked', 
   assert.match(moduleSource, /ЭлементБлокировки\.УстановитьЗначение\("Ключ", Ключ\)/);
   assert.match(handler, /Повтор\.Операция <> Операция Или Повтор\.ХешЗапроса <> Хеш/);
   assert.match(handler, /КлючИдемпотентностиДопустим\(Ключ\)/);
-  assert.match(moduleSource, /СтрДлина\(Ключ\) < 8 Или СтрДлина\(Ключ\) > 135/);
+  assert.match(moduleSource, /СтрНачинаетсяС\(Ключ, "outbox:"\)/);
+  assert.match(moduleSource, /СтрНачинаетсяС\(Ключ, "payroll:"\)/);
+  assert.match(moduleSource, /СтрДлина\(Ключ\) < НачалоЗначения Или СтрДлина\(Ключ\) > 135/);
   assert.match(
     moduleSource,
     /ДопустимыеСимволы = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ-"/,

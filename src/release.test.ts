@@ -27,6 +27,7 @@ describe('Windows release artifact', () => {
       true,
     );
     expect(entries.some((entry) => entry.endsWith('one-c-write-api.md'))).toBe(true);
+    expect(entries.some((entry) => entry.endsWith('one-c-openapi.yaml'))).toBe(true);
     expect(entries.some((entry) => entry.endsWith('  INTEGRATION.md'))).toBe(true);
     expect(entries.some((entry) => entry.endsWith('RELEASE.json'))).toBe(true);
     const metadata = JSON.parse(await readFile(resolve(release, 'RELEASE.json'), 'utf8')) as {
@@ -158,5 +159,31 @@ describe('Windows release artifact', () => {
       `https://github.com/actions/runner/releases/download/v${pinnedRunner.version}/${pinnedRunner.asset}`,
     );
     expect(pinnedRunner.sha256).toMatch(/^[a-f\d]{64}$/);
+  });
+
+  it('ships the implemented local 1C HTTP API as an OpenAPI contract', async () => {
+    const specification = await readFile(resolve(workspace, 'one-c-openapi.yaml'), 'utf8');
+    expect(specification).toContain('openapi: 3.1.0');
+    expect(specification).toContain('url: http://127.0.0.1/{publication}/hs/avtopult/v1');
+    for (const path of [
+      '/diagnostics:',
+      '/work-orders:',
+      '/invoices:',
+      '/payroll-periods:',
+      '/events/claim:',
+      '/events/{eventId}/ack:',
+      '/invoice-documents/claim:',
+      '/invoice-documents/{eventId}/content:',
+      '/invoice-documents/{eventId}/ack:',
+    ]) {
+      expect(specification).toContain(`  ${path}`);
+    }
+    expect(specification).toContain('scheme: basic');
+    expect(specification).toContain('name: X-AvtoPult-Contract-Version');
+    expect(specification).toContain('name: Idempotency-Key');
+    expect(specification).toContain('maxLength: 135');
+    expect(specification).toContain(
+      "pattern: '^(outbox:[0-9A-Za-z-]{1,128}|payroll:[0-9A-Za-z-]{1,127})$'",
+    );
   });
 });

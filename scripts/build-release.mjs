@@ -111,6 +111,10 @@ await cp(
   resolve(repositoryDirectory, 'one-c-write-api.md'),
   resolve(releaseDirectory, 'one-c-write-api.md'),
 );
+await cp(
+  resolve(repositoryDirectory, 'one-c-openapi.yaml'),
+  resolve(releaseDirectory, 'one-c-openapi.yaml'),
+);
 
 const releaseFiles = await filesWithin(releaseDirectory);
 const checksums = [];

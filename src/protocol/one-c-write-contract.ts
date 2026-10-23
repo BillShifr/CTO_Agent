@@ -15,7 +15,9 @@ export const ONE_C_WRITE_PATHS = Object.freeze({
   invoices: 'invoices',
 });
 
-export const oneCIdempotencyKeySchema = z.string().regex(/^outbox:[0-9a-z-]{1,128}$/i);
+export const oneCIdempotencyKeySchema = z
+  .string()
+  .regex(/^(?:outbox:[0-9a-z-]{1,128}|payroll:[0-9a-z-]{1,127})$/i);
 
 const wireItemSchema = oneCWorkOrderExportSchema.shape.items.element
   .omit({ externalId: true, priceTiyn: true })

@@ -5,6 +5,10 @@
 Установка отдельной службы GitHub Runner и автоматическое обновление проверенного Windows-артефакта
 описаны в [PRODUCTION-AUTODEPLOY.md](PRODUCTION-AUTODEPLOY.md).
 
+Swagger/OpenAPI локального HTTP-сервиса, который расширение 1С предоставляет Windows-агенту:
+[one-c-openapi.yaml](one-c-openapi.yaml). Файл можно открыть в Swagger Editor, Swagger UI или
+импортировать в Postman.
+
 ## Как устроен обмен
 
 Агент устанавливается локально на том же Windows-сервере, где опубликованы API 1С:

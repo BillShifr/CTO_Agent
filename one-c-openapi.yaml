@@ -1,0 +1,548 @@
+openapi: 3.1.0
+info:
+  title: АвтоПульт - локальный API расширения 1С
+  version: 1.0.0
+  description: |
+    Контракт HTTP-сервиса, который расширение 1С:КА2 предоставляет Windows-агенту АвтоПульта.
+    Агент и HTTP-публикация 1С работают на сервере заказчика; доступ к этому API из Интернета
+    не требуется. Через API агент создаёт и обновляет заказы и счета, передаёт закрытые
+    зарплатные периоды, а также забирает подготовленные 1С события и PDF счетов.
+servers:
+  - url: http://127.0.0.1/{publication}/hs/avtopult/v1
+    description: Локальная публикация информационной базы 1С
+    variables:
+      publication:
+        default: base
+        description: Имя публикации информационной базы
+security:
+  - basicAuth: []
+tags:
+  - name: Диагностика
+  - name: Заказы
+  - name: Счета
+  - name: Зарплата
+  - name: Исходящие события
+  - name: Печатные формы
+paths:
+  /diagnostics:
+    get:
+      tags: [Диагностика]
+      summary: Проверить доступность расширения и его настройки
+      parameters:
+        - $ref: '#/components/parameters/ContractVersion'
+      responses:
+        '200':
+          description: Расширение доступно
+          headers:
+            X-AvtoPult-Contract-Version:
+              $ref: '#/components/headers/ContractVersion'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        default:
+          $ref: '#/components/responses/Problem'
+
+  /work-orders:
+    post:
+      tags: [Заказы]
+      summary: Создать или обновить ЗаказКлиента
+      parameters:
+        - $ref: '#/components/parameters/ContractVersion'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WorkOrderRequest'
+      responses:
+        '200':
+          description: Заказ создан, обновлён или распознан как повтор
+          headers:
+            X-AvtoPult-Contract-Version:
+              $ref: '#/components/headers/ContractVersion'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkOrderResponse'
+        default:
+          $ref: '#/components/responses/Problem'
+
+  /invoices:
+    post:
+      tags: [Счета]
+      summary: Создать или найти счёт по заказу
+      parameters:
+        - $ref: '#/components/parameters/ContractVersion'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InvoiceRequest'
+      responses:
+        '202':
+          description: Запрос принят или распознан как повтор
+          headers:
+            X-AvtoPult-Contract-Version:
+              $ref: '#/components/headers/ContractVersion'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvoiceAccepted'
+        default:
+          $ref: '#/components/responses/Problem'
+
+  /payroll-periods:
+    post:
+      tags: [Зарплата]
+      summary: Передать закрытый зарплатный период
+      parameters:
+        - $ref: '#/components/parameters/ContractVersion'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PayrollPeriodRequest'
+      responses:
+        '200':
+          description: Начисления записаны или распознаны как повтор
+          headers:
+            X-AvtoPult-Contract-Version:
+              $ref: '#/components/headers/ContractVersion'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PayrollPeriodResponse'
+        default:
+          $ref: '#/components/responses/Problem'
+
+  /events/claim:
+    post:
+      tags: [Исходящие события]
+      summary: Получить до 50 событий 1С для отправки в АвтоПульт
+      parameters:
+        - $ref: '#/components/parameters/ContractVersion'
+      responses:
+        '200':
+          description: События временно закреплены за агентом
+          headers:
+            X-AvtoPult-Contract-Version:
+              $ref: '#/components/headers/ContractVersion'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventClaimResponse'
+        default:
+          $ref: '#/components/responses/Problem'
+
+  /events/{eventId}/ack:
+    post:
+      tags: [Исходящие события]
+      summary: Подтвердить доставку события в АвтоПульт
+      parameters:
+        - $ref: '#/components/parameters/ContractVersion'
+        - $ref: '#/components/parameters/EventId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AckRequest'
+      responses:
+        '204':
+          description: Событие подтверждено
+          headers:
+            X-AvtoPult-Contract-Version:
+              $ref: '#/components/headers/ContractVersion'
+        default:
+          $ref: '#/components/responses/Problem'
+
+  /invoice-documents/claim:
+    post:
+      tags: [Печатные формы]
+      summary: Получить до 10 счетов PDF для отправки в АвтоПульт
+      parameters:
+        - $ref: '#/components/parameters/ContractVersion'
+      responses:
+        '200':
+          description: Документы временно закреплены за агентом
+          headers:
+            X-AvtoPult-Contract-Version:
+              $ref: '#/components/headers/ContractVersion'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvoiceDocumentClaimResponse'
+        default:
+          $ref: '#/components/responses/Problem'
+
+  /invoice-documents/{eventId}/content:
+    get:
+      tags: [Печатные формы]
+      summary: Получить PDF счёта по действующей аренде
+      parameters:
+        - $ref: '#/components/parameters/ContractVersion'
+        - $ref: '#/components/parameters/EventId'
+        - $ref: '#/components/parameters/LeaseToken'
+      responses:
+        '200':
+          description: PDF счёта
+          headers:
+            X-AvtoPult-Contract-Version:
+              $ref: '#/components/headers/ContractVersion'
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+        default:
+          $ref: '#/components/responses/Problem'
+
+  /invoice-documents/{eventId}/ack:
+    post:
+      tags: [Печатные формы]
+      summary: Подтвердить доставку PDF в АвтоПульт
+      parameters:
+        - $ref: '#/components/parameters/ContractVersion'
+        - $ref: '#/components/parameters/EventId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AckRequest'
+      responses:
+        '204':
+          description: Документ подтверждён
+          headers:
+            X-AvtoPult-Contract-Version:
+              $ref: '#/components/headers/ContractVersion'
+        default:
+          $ref: '#/components/responses/Problem'
+
+components:
+  securitySchemes:
+    basicAuth:
+      type: http
+      scheme: basic
+      description: Отдельная учётная запись 1С для Windows-агента
+  parameters:
+    ContractVersion:
+      name: X-AvtoPult-Contract-Version
+      in: header
+      required: true
+      schema:
+        type: string
+        const: '1.0'
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: Ключ outbox:<id> для заказа или счёта; payroll:<periodId> для зарплатного периода. Повтор с тем же телом не создаёт дубль.
+      schema:
+        type: string
+        maxLength: 135
+        pattern: '^(outbox:[0-9A-Za-z-]{1,128}|payroll:[0-9A-Za-z-]{1,127})$'
+    EventId:
+      name: eventId
+      in: path
+      required: true
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 256
+    LeaseToken:
+      name: X-AvtoPult-Lease-Token
+      in: header
+      required: true
+      schema:
+        type: string
+        minLength: 32
+        maxLength: 256
+  headers:
+    ContractVersion:
+      description: Версия контракта ответа
+      schema:
+        type: string
+        const: '1.0'
+  responses:
+    Problem:
+      description: Ошибка проверки, сопоставления, версии или временная ошибка 1С
+      headers:
+        X-AvtoPult-Contract-Version:
+          $ref: '#/components/headers/ContractVersion'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+  schemas:
+    Problem:
+      type: object
+      additionalProperties: false
+      required: [contractVersion, code, message, retryable]
+      properties:
+        contractVersion:
+          type: string
+          const: '1.0'
+        code:
+          type: string
+          maxLength: 128
+        message:
+          type: string
+          maxLength: 500
+        retryable:
+          type: boolean
+        currentVersion:
+          type: integer
+          minimum: 0
+
+    WorkOrderRequest:
+      type: object
+      additionalProperties: false
+      required: [contractVersion, workOrder]
+      properties:
+        contractVersion:
+          type: string
+          const: '1.0'
+        workOrder:
+          $ref: '#/components/schemas/WorkOrder'
+    WorkOrder:
+      type: object
+      additionalProperties: false
+      required:
+        [workOrderId, number, version, stationExternalId, client, vehicle, items, totalTiyn, status]
+      properties:
+        workOrderId: { type: string, minLength: 1, maxLength: 128 }
+        clientId: { type: string, minLength: 1, maxLength: 128 }
+        vehicleId: { type: string, minLength: 1, maxLength: 128 }
+        externalId: { type: string, maxLength: 128 }
+        number: { type: string }
+        version: { type: integer, minimum: 0 }
+        stationExternalId: { type: string }
+        client:
+          oneOf:
+            - $ref: '#/components/schemas/PersonClient'
+            - $ref: '#/components/schemas/LegalEntityClient'
+          discriminator:
+            propertyName: type
+        vehicle:
+          $ref: '#/components/schemas/Vehicle'
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/WorkOrderItem'
+        totalTiyn:
+          $ref: '#/components/schemas/Tiyn'
+        status: { type: string }
+        cancelledReason: { type: string }
+    PersonClient:
+      type: object
+      additionalProperties: false
+      required: [type, name, phone]
+      properties:
+        type: { type: string, const: person }
+        name: { type: string }
+        phone: { type: string }
+        iin: { type: string }
+    LegalEntityClient:
+      type: object
+      additionalProperties: false
+      required: [type, legalName]
+      properties:
+        type: { type: string, const: legal_entity }
+        legalName: { type: string }
+        bin: { type: string }
+        legalAddress: { type: string }
+        iban: { type: string }
+        bik: { type: string }
+        kbe: { type: string }
+    Vehicle:
+      type: object
+      additionalProperties: false
+      required: [registrationNumber, brand, model]
+      properties:
+        vin: { type: string }
+        registrationNumber: { type: string }
+        registrationCountry: { type: string, pattern: '^[A-Z]{2}$' }
+        brand: { type: string }
+        model: { type: string }
+    WorkOrderItem:
+      type: object
+      additionalProperties: false
+      required: [itemId, externalId, type, name, quantity, priceTiyn]
+      properties:
+        itemId: { type: string, minLength: 1, maxLength: 128 }
+        externalId:
+          {
+            type: string,
+            minLength: 1,
+            maxLength: 128,
+            description: GUID номенклатуры или услуги в 1С,
+          }
+        type: { type: string, enum: [service, product] }
+        name: { type: string }
+        quantity: { type: number }
+        priceTiyn:
+          $ref: '#/components/schemas/Tiyn'
+        normHours: { type: number, minimum: 0 }
+        mechanicShare: { type: integer, minimum: 0, maximum: 100 }
+        requiresApproval: { type: boolean }
+    WorkOrderResponse:
+      type: object
+      additionalProperties: false
+      required: [contractVersion, externalId, version, result]
+      properties:
+        contractVersion: { type: string, const: '1.0' }
+        externalId: { type: string, minLength: 1, maxLength: 128 }
+        version: { type: integer, minimum: 0 }
+        result: { type: string, enum: [created, updated, replayed] }
+
+    InvoiceRequest:
+      type: object
+      additionalProperties: false
+      required: [contractVersion, workOrderExternalId, amountTiyn, requestAttempt]
+      properties:
+        contractVersion: { type: string, const: '1.0' }
+        workOrderExternalId: { type: string, minLength: 1, maxLength: 128 }
+        amountTiyn:
+          $ref: '#/components/schemas/Tiyn'
+        requestAttempt: { type: integer, minimum: 1 }
+    InvoiceAccepted:
+      type: object
+      additionalProperties: false
+      required: [contractVersion, requestId, status]
+      properties:
+        contractVersion: { type: string, const: '1.0' }
+        requestId: { type: string, minLength: 1, maxLength: 128 }
+        status: { type: string, enum: [accepted, replayed] }
+
+    PayrollPeriodRequest:
+      type: object
+      additionalProperties: false
+      required: [periodId, dateFrom, dateTo, stationId, lines]
+      properties:
+        periodId: { type: string, format: uuid }
+        dateFrom: { type: string, format: date-time }
+        dateTo: { type: string, format: date-time }
+        stationId:
+          type: [string, 'null']
+          format: uuid
+        lines:
+          type: array
+          items:
+            $ref: '#/components/schemas/PayrollLine'
+    PayrollLine:
+      type: object
+      additionalProperties: false
+      required: [employeeId, component, amountTiyn, workOrderId, workOrderItemId, formula]
+      properties:
+        employeeId: { type: string, format: uuid }
+        component: { type: string, enum: [norm_hours, salary, percent, refund, manual_adjustment] }
+        amountTiyn: { type: string, pattern: '^-?(0|[1-9][0-9]*)$' }
+        workOrderId: { type: [string, 'null'], format: uuid }
+        workOrderItemId: { type: [string, 'null'], format: uuid }
+        formula: { type: object, additionalProperties: true }
+    PayrollPeriodResponse:
+      type: object
+      additionalProperties: false
+      required: [externalId]
+      properties:
+        externalId: { type: string, minLength: 1, maxLength: 128 }
+
+    EventClaimResponse:
+      type: object
+      additionalProperties: false
+      required: [events]
+      properties:
+        events:
+          type: array
+          maxItems: 50
+          items:
+            type: object
+            additionalProperties: false
+            required: [leaseToken, event]
+            properties:
+              leaseToken: { type: string, minLength: 32, maxLength: 256 }
+              event:
+                $ref: '#/components/schemas/OutboundEvent'
+    OutboundEvent:
+      type: object
+      required: [event, eventId]
+      properties:
+        event:
+          type: string
+          enum:
+            [
+              invoice.issued,
+              invoice.error,
+              invoice.paid,
+              invoice.payment,
+              invoice.refund,
+              cash.payment,
+              cash.refund,
+              payment.refund,
+              workorder.ack,
+              workorder.changed,
+            ]
+        eventId: { type: string, minLength: 1, maxLength: 128 }
+      additionalProperties: true
+      description: Поля события зависят от его типа; полные примеры и правила приведены в документации интеграции.
+    AckRequest:
+      type: object
+      additionalProperties: false
+      required: [leaseToken]
+      properties:
+        leaseToken: { type: string, minLength: 32, maxLength: 256 }
+        workOrderVersion: { type: integer, minimum: 1 }
+
+    InvoiceDocumentClaimResponse:
+      type: object
+      additionalProperties: false
+      required: [documents]
+      properties:
+        documents:
+          type: array
+          maxItems: 10
+          items:
+            type: object
+            additionalProperties: false
+            required: [leaseToken, upload]
+            properties:
+              leaseToken: { type: string, minLength: 32, maxLength: 256 }
+              upload:
+                $ref: '#/components/schemas/InvoiceDocumentUpload'
+    InvoiceDocumentUpload:
+      type: object
+      additionalProperties: false
+      required:
+        [
+          eventId,
+          workOrderExternalId,
+          requestAttempt,
+          invoiceExternalId,
+          invoiceNumber,
+          issuedAt,
+          amountTiyn,
+          documentSha256,
+        ]
+      properties:
+        eventId: { type: string, minLength: 1, maxLength: 128 }
+        workOrderExternalId: { type: string, minLength: 1, maxLength: 128 }
+        requestAttempt: { type: integer, minimum: 1 }
+        invoiceExternalId: { type: string, minLength: 1, maxLength: 128 }
+        invoiceNumber: { type: string }
+        issuedAt: { type: string, format: date-time }
+        amountTiyn:
+          $ref: '#/components/schemas/Tiyn'
+        documentSha256: { type: string, pattern: '^[0-9a-f]{64}$' }
+    Tiyn:
+      type: string
+      pattern: '^(0|[1-9][0-9]*)$'
+      maxLength: 19
+      description: Сумма в тиынах без десятичной точки
