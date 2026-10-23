@@ -58,7 +58,7 @@ function Test-AgentReleaseChecksums([string]$ReleaseDirectory) {
     if (-not (Test-Path -LiteralPath $checksumPath -PathType Leaf)) {
         throw 'Release SHA256SUMS was not found.'
     }
-    foreach ($line in Get-Content -LiteralPath $checksumPath) {
+    foreach ($line in Get-Content -LiteralPath $checksumPath -Encoding UTF8) {
         if ($line -notmatch '^(?<hash>[a-f0-9]{64})  (?<name>[^\\].+)$') {
             throw 'Release checksum manifest is malformed.'
         }
