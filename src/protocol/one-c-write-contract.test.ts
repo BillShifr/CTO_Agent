@@ -75,11 +75,15 @@ describe('1C write contract', () => {
     },
   );
 
-  it('requires a durable outbox idempotency key', () => {
+  it('requires a durable write idempotency key supported by 1C', () => {
     expect(oneCIdempotencyKeySchema.parse('outbox:84b5dd67-03b4-49f7-a14f-49e94fbc7db3')).toBe(
       'outbox:84b5dd67-03b4-49f7-a14f-49e94fbc7db3',
     );
+    expect(oneCIdempotencyKeySchema.parse('payroll:84b5dd67-03b4-49f7-a14f-49e94fbc7db3')).toBe(
+      'payroll:84b5dd67-03b4-49f7-a14f-49e94fbc7db3',
+    );
     expect(oneCIdempotencyKeySchema.safeParse('retry-1').success).toBe(false);
+    expect(oneCIdempotencyKeySchema.safeParse('payroll:').success).toBe(false);
   });
 
   it('rejects an outbound item without a stable 1C catalog identity', () => {

@@ -9,6 +9,12 @@ try {
     & $installer -Archive $archive -ExpectedSha256 $hash -Destination $target -PreflightOnly
     if (Test-Path $target) { throw 'Preflight installed files.' }
     if (@(Get-ChildItem $fixture).Count) { throw 'Staging was not cleaned.' }
+    # Run the real bundled executable repeatedly: this is the Windows boundary that previously
+    # left node.exe locked while the installer removed its staging directory.
+    1..3 | ForEach-Object {
+        & $installer -Archive $archive -ExpectedSha256 $hash -Destination $target -PreflightOnly
+        if (@(Get-ChildItem $fixture).Count) { throw "Staging was not cleaned after preflight $_." }
+    }
     $rejected = $false
     try { & $installer -Archive $archive -ExpectedSha256 ('0' * 64) -Destination $target -PreflightOnly }
     catch { if ($_.Exception.Message -notlike 'Archive checksum mismatch*') { throw }; $rejected = $true }

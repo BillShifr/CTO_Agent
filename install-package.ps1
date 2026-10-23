@@ -6,10 +6,31 @@ param(
     [string]$ApiUrl = 'https://cto24.kz/api/v1/',
     [string]$OneCBaseUrl,
     [switch]$AllowLocalHttp,
+    [switch]$InstallProductionRunner,
+    [string]$RepositoryUrl = 'https://github.com/BillShifr/CTO_Agent',
+    [string]$RunnerGroup,
     [switch]$PreflightOnly
 )
 
 $ErrorActionPreference = 'Stop'
+
+function Remove-InstallerStagingDirectory([string]$Path) {
+    # Windows can retain the image section of the bundled node.exe briefly after the synchronous
+    # version check exits. The staging directory belongs exclusively to this installer, so wait
+    # for that transient lock instead of turning an otherwise successful preflight into a failure.
+    for ($attempt = 1; $attempt -le 20; $attempt++) {
+        if (-not (Test-Path -LiteralPath $Path)) { return }
+        try {
+            Remove-Item -LiteralPath $Path -Recurse -Force -ErrorAction Stop
+            return
+        }
+        catch {
+            if ($attempt -eq 20) { throw }
+            Start-Sleep -Milliseconds 250
+        }
+    }
+}
+
 $principal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
 if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
     throw 'Run PowerShell as Administrator.'
@@ -64,12 +85,17 @@ try {
     # Directory.Move fails if another installation created the target while preflight ran.
     [IO.Directory]::Move($staging, $target)
 } finally {
-    if (Test-Path -LiteralPath $staging) { Remove-Item -LiteralPath $staging -Recurse -Force }
+    Remove-InstallerStagingDirectory $staging
 }
 try {
     & (Join-Path $target 'setup-agent.ps1') -ApiUrl $ApiUrl -OneCBaseUrl $OneCBaseUrl -AllowLocalHttp:$AllowLocalHttp
     if (-not $?) { throw 'Setup failed.' }
+    if ($InstallProductionRunner) {
+        & (Join-Path $target 'setup-production-runner.ps1') -RepositoryUrl $RepositoryUrl `
+            -RunnerGroup $RunnerGroup -AgentDirectory $target
+        if (-not $?) { throw 'Production runner setup failed.' }
+    }
 } catch {
-    Write-Warning "Installation files and any protected configuration were preserved. Fix the error and resume: $target\setup-agent.ps1"
+    Write-Warning "Installation files and protected configuration were preserved. Resume agent setup with $target\setup-agent.ps1; if the agent service is already running, resume runner setup with $target\setup-production-runner.ps1."
     throw
 }
