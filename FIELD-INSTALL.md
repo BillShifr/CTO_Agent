@@ -1,6 +1,7 @@
 # Интеграция СТО с 1С
 
 Полная инструкция с командами: [INTEGRATION.md](INTEGRATION.md).
+Проверка на копии базы: [TEST-INFOBASE-ACCEPTANCE.md](TEST-INFOBASE-ACCEPTANCE.md).
 Установка production runner и автообновление: [PRODUCTION-AUTODEPLOY.md](PRODUCTION-AUTODEPLOY.md).
 
 ## 1. Специалист 1С — до установки агента

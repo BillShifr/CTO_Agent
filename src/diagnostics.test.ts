@@ -27,7 +27,20 @@ describe('read-only diagnostics', () => {
     const fetch = vi.fn(async (input: URL | RequestInfo, init?: RequestInit) => {
       void init;
       const url = input.toString();
-      if (url.endsWith('/diagnostics')) return Response.json({ ok: true });
+      if (url.includes('/hs/avtopult/v1/diagnostics'))
+        return Response.json(
+          {
+            contractVersion: '1.0',
+            status: 'ready',
+            checks: [{ name: 'configuration', status: 'ok' }],
+          },
+          { headers: { 'x-avtopult-contract-version': '1.0' } },
+        );
+      if (url.endsWith('/diagnostics'))
+        return Response.json({
+          ok: true,
+          connectionId: '11111111-1111-4111-8111-111111111111',
+        });
       return new Response('', { status: url.includes('$metadata') ? 401 : 200 });
     });
     vi.stubGlobal('fetch', fetch);
@@ -65,6 +78,48 @@ describe('read-only diagnostics', () => {
       name: 'cloud',
       status: 'failed',
       detail: 'invalid response content type',
+    });
+  });
+
+  it('rejects a legacy or degraded 1C diagnostics response', async () => {
+    const config = await testConfig();
+    const responses = [
+      { ok: true },
+      {
+        contractVersion: '1.0',
+        status: 'degraded',
+        checks: [{ name: 'configuration', status: 'failed' }],
+      },
+    ];
+    let diagnostic = 0;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: URL | RequestInfo) => {
+        const url = input.toString();
+        if (url.includes('/hs/avtopult/v1/diagnostics')) {
+          return Response.json(responses[diagnostic++], {
+            headers: { 'x-avtopult-contract-version': '1.0' },
+          });
+        }
+        if (url.endsWith('/diagnostics'))
+          return Response.json({
+            ok: true,
+            connectionId: '11111111-1111-4111-8111-111111111111',
+          });
+        return new Response('', { status: 200 });
+      }),
+    );
+
+    const legacy = await runAgentDiagnostics(config);
+    const degraded = await runAgentDiagnostics(config);
+
+    expect(legacy.find(({ name }) => name === 'one_c_write')).toMatchObject({
+      status: 'failed',
+      detail: 'diagnostics response is invalid',
+    });
+    expect(degraded.find(({ name }) => name === 'one_c_write')).toMatchObject({
+      status: 'failed',
+      detail: '1C extension is degraded',
     });
   });
 });

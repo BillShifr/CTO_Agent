@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  oneCAgentDiagnosticsResponseSchema,
   canonicalAgentJson,
   oneCAgentClaimResponseSchema,
   oneCAgentResultSchema,
@@ -10,6 +11,16 @@ import {
 
 const id = 'a3f63973-d63f-4f07-8279-57300f22b409';
 const token = 'x'.repeat(32);
+
+it('requires a connection identity in cloud diagnostics', () => {
+  expect(
+    oneCAgentDiagnosticsResponseSchema.parse({
+      ok: true,
+      connectionId: '11111111-1111-4111-8111-111111111111',
+    }),
+  ).toEqual({ ok: true, connectionId: '11111111-1111-4111-8111-111111111111' });
+  expect(oneCAgentDiagnosticsResponseSchema.safeParse({ ok: true }).success).toBe(false);
+});
 
 describe('1C agent relay contract', () => {
   it('carries the resulting order version without requiring it for payment receipts', () => {
@@ -154,7 +165,14 @@ describe('1C agent extended result contracts', () => {
       oneCAgentResultSchema.parse({
         kind: 'payroll.export',
         leaseToken: token,
-        outcome: { status: 'succeeded', response: { externalId: 'accrual-2026-09' } },
+        outcome: {
+          status: 'succeeded',
+          response: {
+            contractVersion: '1.0',
+            externalId: 'accrual-2026-09',
+            result: 'created',
+          },
+        },
       }),
     ).not.toThrow();
   });

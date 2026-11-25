@@ -3,6 +3,7 @@ import {
   ONE_C_WRITE_CONTRACT_VERSION,
   oneCIdempotencyKeySchema,
   oneCInvoiceRequestSchema,
+  oneCLocalDiagnosticsResponseSchema,
   oneCWorkOrderUpsertRequestSchema,
   oneCWorkOrderUpsertResponseSchema,
   oneCWriteProblemSchema,
@@ -116,5 +117,19 @@ describe('1C write contract', () => {
         currentVersion: 5,
       }),
     ).toMatchObject({ retryable: false, currentVersion: 5 });
+  });
+
+  it('defines the read-only 1C extension diagnostics response', () => {
+    expect(
+      oneCLocalDiagnosticsResponseSchema.parse({
+        contractVersion: ONE_C_WRITE_CONTRACT_VERSION,
+        status: 'ready',
+        checks: [
+          { name: 'httpService', status: 'ok' },
+          { name: 'configuration', status: 'ok' },
+        ],
+      }),
+    ).toMatchObject({ status: 'ready' });
+    expect(oneCLocalDiagnosticsResponseSchema.safeParse({ ok: true }).success).toBe(false);
   });
 });

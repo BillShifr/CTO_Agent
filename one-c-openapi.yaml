@@ -39,8 +39,7 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                additionalProperties: true
+                $ref: '#/components/schemas/DiagnosticsResponse'
         default:
           $ref: '#/components/responses/Problem'
 
@@ -302,6 +301,25 @@ components:
           type: integer
           minimum: 0
 
+    DiagnosticsResponse:
+      type: object
+      additionalProperties: false
+      required: [contractVersion, status, checks]
+      properties:
+        contractVersion: { type: string, const: '1.0' }
+        status: { type: string, enum: [ready, degraded] }
+        checks:
+          type: array
+          minItems: 1
+          maxItems: 64
+          items:
+            type: object
+            additionalProperties: false
+            required: [name, status]
+            properties:
+              name: { type: string, minLength: 1, maxLength: 128 }
+              status: { type: string, enum: [ok, failed] }
+
     WorkOrderRequest:
       type: object
       additionalProperties: false
@@ -451,9 +469,11 @@ components:
     PayrollPeriodResponse:
       type: object
       additionalProperties: false
-      required: [externalId]
+      required: [contractVersion, externalId, result]
       properties:
+        contractVersion: { type: string, const: '1.0' }
         externalId: { type: string, minLength: 1, maxLength: 128 }
+        result: { type: string, enum: [created, replayed] }
 
     EventClaimResponse:
       type: object

@@ -75,8 +75,24 @@ export const oneCWriteProblemSchema = z
   })
   .strict();
 
+export const oneCLocalDiagnosticCheckSchema = z
+  .object({
+    name: z.string().trim().min(1).max(128),
+    status: z.enum(['ok', 'failed']),
+  })
+  .strict();
+
+export const oneCLocalDiagnosticsResponseSchema = z
+  .object({
+    contractVersion: z.literal(ONE_C_WRITE_CONTRACT_VERSION),
+    status: z.enum(['ready', 'degraded']),
+    checks: z.array(oneCLocalDiagnosticCheckSchema).min(1).max(64),
+  })
+  .strict();
+
 export type OneCWorkOrderUpsertRequest = z.infer<typeof oneCWorkOrderUpsertRequestSchema>;
 export type OneCWorkOrderUpsertResponse = z.infer<typeof oneCWorkOrderUpsertResponseSchema>;
 export type OneCInvoiceRequest = z.infer<typeof oneCInvoiceRequestSchema>;
 export type OneCInvoiceAccepted = z.infer<typeof oneCInvoiceAcceptedSchema>;
 export type OneCWriteProblem = z.infer<typeof oneCWriteProblemSchema>;
+export type OneCLocalDiagnosticsResponse = z.infer<typeof oneCLocalDiagnosticsResponseSchema>;
