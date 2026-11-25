@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import {
+  ONE_C_WRITE_CONTRACT_VERSION,
   oneCInvoiceAcceptedSchema,
   oneCInvoiceRequestSchema,
   oneCWorkOrderUpsertRequestSchema,
@@ -11,6 +12,10 @@ import { oneCInboundSchema, oneCInvoiceDocumentUploadSchema } from './integratio
 const commandIdSchema = z.uuid();
 const leaseTokenSchema = z.string().min(32).max(256);
 const sha256Schema = z.string().regex(/^[a-f0-9]{64}$/);
+
+export const oneCAgentDiagnosticsResponseSchema = z
+  .object({ ok: z.literal(true), connectionId: z.uuid() })
+  .strict();
 
 /** Stable JSON bytes for hashes that must survive PostgreSQL JSONB object-key reordering. */
 export function canonicalAgentJson(value: unknown): string {
@@ -70,7 +75,11 @@ export const oneCPayrollExportRequestSchema = z
   .strict();
 
 export const oneCPayrollExportResponseSchema = z
-  .object({ externalId: z.string().trim().min(1).max(128) })
+  .object({
+    contractVersion: z.literal(ONE_C_WRITE_CONTRACT_VERSION),
+    externalId: z.string().trim().min(1).max(128),
+    result: z.enum(['created', 'replayed']),
+  })
   .strict();
 
 /**

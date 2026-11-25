@@ -122,7 +122,11 @@ describe('1C agent delivery', () => {
         });
       }
       if (url.endsWith('/hs/avtopult/v1/payroll-periods'))
-        return Response.json({ externalId: 'accrual-2026-09' });
+        return Response.json({
+          contractVersion: '1.0',
+          externalId: 'accrual-2026-09',
+          result: 'created',
+        });
       if (url.endsWith('/result')) return Response.json({ accepted: true });
       throw new Error(`unexpected URL ${url}`);
     });
@@ -417,7 +421,10 @@ describe('durable result isolation and storage backpressure', () => {
     const result = (externalId: string) => ({
       kind: 'payroll.export',
       leaseToken: 'x'.repeat(32),
-      outcome: { status: 'succeeded', response: { externalId } },
+      outcome: {
+        status: 'succeeded',
+        response: { contractVersion: '1.0', externalId, result: 'created' },
+      },
     });
     await writeFile(
       join(directory, 'pending-results.json'),

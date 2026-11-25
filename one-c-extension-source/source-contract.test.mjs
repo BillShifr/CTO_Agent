@@ -128,6 +128,10 @@ test('read-only diagnostics endpoint validates the contract without claiming wor
   const start = moduleSource.indexOf('Функция ОтветДиагностики(');
   const diagnostics = moduleSource.slice(start, moduleSource.indexOf('КонецФункции', start));
   assert.doesNotMatch(diagnostics, /Записать|НачатьТранзакцию|ПолучитьИсходящие/);
+  assert.match(diagnostics, /AvtoPultСамопроверка\.ПроверитьУстановку\(\)/);
+  assert.match(diagnostics, /CONFIGURATION_INCOMPLETE/);
+  assert.match(diagnostics, /"contractVersion,status,checks", "1\.0", "ready"/);
+  assert.doesNotMatch(diagnostics, /Новый Структура\("ok"/);
 });
 
 test('installation preflight verifies every module, service, register and required field', async () => {
@@ -374,7 +378,7 @@ test('order ACK persists the validated cloud result in the delivery transaction'
   const start = moduleSource.indexOf('Функция ПодтвердитьИсходящийОбъект(');
   const body = moduleSource.slice(start, moduleSource.indexOf('КонецФункции', start));
   const write = body.indexOf('ЗаписатьСостояниеИсходящегоОбъекта(Запись, "delivered"');
-  for (const guard of ['RESULT_VERSION_REQUIRED', 'RESULT_VERSION_INVALID']) {
+  for (const guard of ['WORK_ORDER_VERSION_REQUIRED', 'WORK_ORDER_VERSION_INVALID']) {
     assert.ok(body.indexOf(guard) > 0 && body.indexOf(guard) < write);
   }
   assert.match(body, /ВерсияОблака <= Событие\.baseVersion/);
@@ -583,11 +587,34 @@ test('invoice source does not acknowledge missing printing and limits binary del
     new URL('./src/CommonModules/AvtoPultСчета/Module.bsl', import.meta.url),
     'utf8',
   );
-  assert.match(invoices, /PRINT_PIPELINE_NOT_CONFIGURED/);
+  assert.match(invoices, /INVOICE_PRINTING_UNAVAILABLE/);
   assert.match(invoices, /10485760/);
   assert.match(invoices, /ПоставитьPDFСчетаВОчердь\(/);
   assert.match(invoices, /УдалитьФайлы\(/);
   assert.doesNotMatch(invoices, /ЗафиксироватьТранзакцию\(|НачатьТранзакцию\(/);
+});
+
+test('local outbox errors and PDF delivery match the public v2.3 contract', async () => {
+  for (const code of [
+    'EVENT_NOT_FOUND',
+    'DOCUMENT_NOT_FOUND',
+    'LEASE_TOKEN_INVALID',
+    'WORK_ORDER_VERSION_REQUIRED',
+    'OUTBOX_UNAVAILABLE',
+    'DOCUMENT_TOO_LARGE',
+    'DOCUMENT_FORMAT_INVALID',
+  ]) {
+    assert.match(moduleSource, new RegExp(code));
+  }
+  const acknowledgeStart = moduleSource.indexOf('Функция ПодтвердитьИсходящийОбъект(');
+  const acknowledge = moduleSource.slice(
+    acknowledgeStart,
+    moduleSource.indexOf('КонецФункции', acknowledgeStart),
+  );
+  assert.doesNotMatch(acknowledge, /OUTBOX_ITEM_NOT_FOUND|LEASE_CONFLICT|RESULT_VERSION_REQUIRED/);
+  const orders = await readCommonModule('AvtoPultЗаказы');
+  assert.match(orders, /VERSION_PAYLOAD_CONFLICT/);
+  assert.match(orders, /CATALOG_MAPPING_MISSING/);
 });
 
 test('native order subscription captures immutable revisions without guessing cloud transitions', async () => {

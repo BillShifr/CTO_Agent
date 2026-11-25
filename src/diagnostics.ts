@@ -1,6 +1,8 @@
 import { lstat, statfs } from 'node:fs/promises';
 import type { AgentConfig } from './config.js';
-import { boundedFetch } from './http.js';
+import { boundedFetch, json } from './http.js';
+import { oneCAgentDiagnosticsResponseSchema } from './protocol/one-c-agent-contract.js';
+import { oneCLocalDiagnosticsResponseSchema } from './protocol/one-c-write-contract.js';
 
 export interface DiagnosticCheck {
   readonly name:
@@ -55,9 +57,8 @@ async function cloudCheck(config: AgentConfig): Promise<DiagnosticCheck> {
     if (!response.ok) return failed('cloud', `HTTP ${String(response.status)}`);
     if (!response.headers.get('content-type')?.toLowerCase().startsWith('application/json'))
       return failed('cloud', 'invalid response content type');
-    const body = (await response.json()) as unknown;
-    if (typeof body !== 'object' || body === null || !('ok' in body) || body.ok !== true)
-      return failed('cloud', 'invalid diagnostics response');
+    const parsed = oneCAgentDiagnosticsResponseSchema.safeParse(await json(response));
+    if (!parsed.success) return failed('cloud', 'invalid diagnostics response');
     return ok('cloud', `HTTP ${String(response.status)}; agent credential accepted`);
   } catch {
     return failed('cloud', 'connection failed');
@@ -102,6 +103,13 @@ async function httpCheck(
   try {
     const response = await boundedFetch(config, url, { method: 'GET', ...init });
     if (!response.ok) return failed(name, `HTTP ${String(response.status)}`);
+    if (name === 'one_c_write') {
+      if (response.headers.get('x-avtopult-contract-version') !== '1.0')
+        return failed(name, 'contract version response is missing or unsupported');
+      const parsed = oneCLocalDiagnosticsResponseSchema.safeParse(await json(response));
+      if (!parsed.success) return failed(name, 'diagnostics response is invalid');
+      if (parsed.data.status !== 'ready') return failed(name, '1C extension is degraded');
+    }
     return ok(name, `HTTP ${String(response.status)}`);
   } catch {
     return failed(name, 'connection failed');
